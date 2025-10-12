@@ -7,8 +7,8 @@ export class UsersController {
   constructor(private readonly usersService: UsersService) {}
 
   @Post('send-verification-code')
-  async sendVerificationCode(@Body() body: { email: string }) {
-    return this.usersService.sendVerificationEmail(body.email);
+  async sendVerificationCode(@Body() body: { correo: string }) {
+    return this.usersService.sendVerificationEmail(body.correo);
   }
 
   @Post('validate-code')
