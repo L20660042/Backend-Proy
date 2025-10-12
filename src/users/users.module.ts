@@ -2,13 +2,15 @@ import { Module } from '@nestjs/common';
 import { MongooseModule } from '@nestjs/mongoose';
 import { UsersController } from './users.controller';
 import { UsersService } from './users.service';
-import { User, UserSchema } from './user.schema'; // Asegúrate de importar tanto la interfaz como el esquema
+import { User, UserSchema } from './user.schema'; 
+import { MailerModule } from '../mailer/mailer.module';
 
 @Module({
   imports: [
-    MongooseModule.forFeature([{ name: 'User', schema: UserSchema }]), // Usa el nombre 'User' para el modelo
+    MongooseModule.forFeature([{ name: 'User', schema: UserSchema }]),  
+    MailerModule,  
   ],
+  providers: [UsersService], 
   controllers: [UsersController],
-  providers: [UsersService],
 })
 export class UsersModule {}
