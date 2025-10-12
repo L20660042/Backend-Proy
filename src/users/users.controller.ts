@@ -11,13 +11,18 @@ export class UsersController {
     return this.usersService.sendVerificationEmail(body.email);
   }
 
+  @Post('validate-code')
+  async validateCode(@Body() body: { code: string }) {
+    const isValid = await this.usersService.validateCode(body.code);  // Llamada al método validateCode
+    if (isValid) {
+      return { message: 'Código de verificación válido' };
+    } else {
+      return { message: 'Código de verificación inválido' };
+    }
+  }
+
   @Post('register')
   async register(@Body() createUserDto: CreateUserDto) {
     return this.usersService.create(createUserDto);
-  }
-
-  @Post('validate-code')
-  async validateCode(@Body() body: { code: string }) {
-    return this.usersService.validateCode(body.code); // Validación del código
   }
 }
