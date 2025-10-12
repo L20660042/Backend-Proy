@@ -1,14 +1,16 @@
 import { Module } from '@nestjs/common';
-import { MongooseModule } from '@nestjs/mongoose';
-import { UsersService } from './users.service';
 import { UsersController } from './users.controller';
-import { User, UserSchema } from './user.schema';  // Asegúrate de importar UserSchema correctamente
+import { UsersService } from './users.service';
+import { MongooseModule } from '@nestjs/mongoose';
+import { User, UserSchema } from './user.schema';
+import { MailerModule } from '../mailer/mailer.module';
 
 @Module({
   imports: [
-    MongooseModule.forFeature([{ name: 'User', schema: UserSchema }]),  // 'User' como nombre de entidad y el esquema UserSchema
+    MongooseModule.forFeature([{ name: User.name, schema: UserSchema }]),
+    MailerModule,
   ],
-  providers: [UsersService],
   controllers: [UsersController],
+  providers: [UsersService],
 })
 export class UsersModule {}
