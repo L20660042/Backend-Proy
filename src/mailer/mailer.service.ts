@@ -3,29 +3,35 @@ import * as nodemailer from 'nodemailer';
 
 @Injectable()
 export class MailerService {
-  async sendVerificationEmail(to: string, code: string) {
-    const transporter = nodemailer.createTransport({
-      service: 'gmail',
+  private transporter;
+
+  constructor() {
+    this.transporter = nodemailer.createTransport({
+      host: 'smtp.gmail.com',
+      port: 587,           // STARTTLS
+      secure: false,       // false porque STARTTLS
       auth: {
-        user: process.env.SMTP_USER,
-        pass: process.env.SMTP_PASS,
+        user: process.env.GMAIL_USER,
+        pass: process.env.GMAIL_PASS, // tu contraseña de app (no la normal)
+      },
+      tls: {
+        rejectUnauthorized: false, // importante en Railway
       },
     });
+  }
 
-    const mailOptions = {
-      from: `"Metricampus" <${process.env.SMTP_USER}>`,
-      to,
-      subject: 'Código de verificación - Metricampus',
-      html: `
-        <div style="font-family: Arial, sans-serif; padding: 20px;">
-          <h2>Verificación de correo</h2>
-          <p>Tu código de verificación es:</p>
-          <h1 style="color: #007bff;">${code}</h1>
-          <p>Expira en 10 minutos.</p>
-        </div>
-      `,
-    };
-
-    await transporter.sendMail(mailOptions);
+  async sendVerificationEmail(email: string, code: string) {
+    try {
+      await this.transporter.sendMail({
+        from: `"Mi App" <${process.env.GMAIL_USER}>`,
+        to: email,
+        subject: 'Código de verificación',
+        html: `<h1>Tu código de verificación es: ${code}</h1>`,
+      });
+      console.log('Correo enviado a', email);
+    } catch (error) {
+      console.error('Error al enviar el correo:', error);
+      throw error;
+    }
   }
 }
