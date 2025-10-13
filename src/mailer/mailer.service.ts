@@ -6,19 +6,18 @@ export class MailerService {
   private transporter: nodemailer.Transporter;
 
   constructor() {
-    // Configuramos el transporter para usar Gmail
     this.transporter = nodemailer.createTransport({
-      service: 'gmail',  // Usamos el servicio Gmail
+      service: 'gmail',
       auth: {
-        user: 'luistoarzola@gmail.com',
-        pass: 'afqx oilp saoi mneu', 
+        user: 'luistoarzola@gmail.com',  // Tu correo de Gmail
+        pass: 'afqx oilp saoi mneu',    // Contraseña de aplicación
       },
+      port: 587,  // Puerto 587 para STARTTLS
+      secure: false,  // No SSL, usamos STARTTLS
       tls: {
-        rejectUnauthorized: false,  // Permite conexiones seguras sin verificar el certificado (puede ser útil en entornos de desarrollo)
+        rejectUnauthorized: false, // Permite conexiones sin verificar certificado (útil para desarrollo)
       },
-      port: 465,  // Usar puerto 465 para conexiones seguras (SSL)
-      secure: true,  // Usar SSL
-      connectionTimeout: 10000,  // Tiempo de espera de conexión (10 segundos)
+      connectionTimeout: 20000,  // Aumentar el tiempo de espera de conexión
     });
   }
 
@@ -32,8 +31,7 @@ export class MailerService {
     };
 
     try {
-      // Enviamos el correo usando el transporter configurado
-      await this.transporter.sendMail(mailOptions);  
+      await this.transporter.sendMail(mailOptions);
       console.log('Correo enviado');
     } catch (error) {
       console.error('Error al enviar el correo:', error);
