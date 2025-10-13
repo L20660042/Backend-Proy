@@ -9,30 +9,26 @@ export class MailerService {
     this.transporter = nodemailer.createTransport({
       service: 'gmail',
       auth: {
-        user: 'luistoarzola@gmail.com',  // Tu correo de Gmail
-        pass: 'afqx oilp saoi mneu',    // Contraseña de aplicación
+        user: process.env.GMAIL_USER, // Tu correo de Gmail
+        pass: process.env.GMAIL_PASS, // App password
       },
-      port: 587,  // Puerto 587 para STARTTLS
-      secure: false,  // No SSL, usamos STARTTLS
-      tls: {
-        rejectUnauthorized: false, // Permite conexiones sin verificar certificado (útil para desarrollo)
-      },
-      connectionTimeout: 20000,  // Aumentar el tiempo de espera de conexión
+      port: 465,       // SSL
+      secure: true,    // SSL habilitado
+      connectionTimeout: 20000, // Tiempo de espera aumentado
     });
   }
 
-  // Método para enviar el código de verificación
   async sendVerificationCode(email: string, code: string): Promise<void> {
     const mailOptions = {
-      from: 'luistoarzola@gmail.com',  // Correo desde el que se envía
-      to: email,  // Correo del destinatario
+      from: process.env.GMAIL_USER,
+      to: email,
       subject: 'Código de Verificación',
-      text: `Tu código de verificación es: ${code}`,  // El cuerpo del correo
+      text: `Tu código de verificación es: ${code}`,
     };
 
     try {
       await this.transporter.sendMail(mailOptions);
-      console.log('Correo enviado');
+      console.log(`Correo enviado a ${email}`);
     } catch (error) {
       console.error('Error al enviar el correo:', error);
     }
