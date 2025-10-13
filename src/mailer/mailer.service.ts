@@ -3,7 +3,8 @@ import * as nodemailer from 'nodemailer';
 import { google } from 'googleapis';
 
 @Injectable()
-export class MailService {
+export class MailerService
+ {
   private oauth2Client;
 
   constructor() {
