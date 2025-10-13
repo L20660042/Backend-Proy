@@ -4,13 +4,13 @@ import { Model } from 'mongoose';
 import { User } from './user.schema';
 import { CreateUserDto } from './create-user.dto';
 import * as bcrypt from 'bcryptjs';
-import { MailService } from '../mailer/mailer.service';
+import { MailerService } from '../mailer/mailer.service';
 
 @Injectable()
 export class UsersService {
   constructor(
     @InjectModel('User') private userModel: Model<User>,
-    private readonly mailService: MailService,
+    private readonly mailerService: MailerService,
   ) {}
 
   // 1️⃣ Enviar código de verificación
@@ -24,7 +24,7 @@ export class UsersService {
       { upsert: true }
     );
 
-    await this.mailService.sendVerificationEmail(email, code);
+    await this.mailerService.sendVerificationEmail(email, code);
     console.log('Código enviado:', code);
   }
 

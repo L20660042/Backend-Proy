@@ -3,8 +3,7 @@ import * as nodemailer from 'nodemailer';
 import { google } from 'googleapis';
 
 @Injectable()
-export class MailerService
- {
+export class MailerService {
   private oauth2Client;
 
   constructor() {
@@ -38,15 +37,13 @@ export class MailerService
       from: `"Metricampus" <${process.env.GMAIL_USER}>`,
       to,
       subject: 'Código de verificación - Metricampus',
-      html: `
-        <div style="font-family: Arial, sans-serif; padding: 20px;">
-          <h2>Verificación de correo</h2>
-          <p>Gracias por registrarte en <b>Metricampus</b>.</p>
-          <p>Tu código de verificación es:</p>
-          <h1 style="color: #007bff;">${code}</h1>
-          <p>Este código expirará en 10 minutos.</p>
-        </div>
-      `,
+      html: `<div style="font-family: Arial, sans-serif; padding: 20px;">
+              <h2>Verificación de correo</h2>
+              <p>Gracias por registrarte en <b>Metricampus</b>.</p>
+              <p>Tu código de verificación es:</p>
+              <h1 style="color: #007bff;">${code}</h1>
+              <p>Este código expirará en 10 minutos.</p>
+            </div>`,
     };
 
     await transporter.sendMail(mailOptions);
