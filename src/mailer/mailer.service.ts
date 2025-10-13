@@ -10,8 +10,8 @@ export class MailerService {
     this.transporter = nodemailer.createTransport({
       service: 'gmail',
       auth: {
-        user: 'Luistoarzola@gmail.com',  // Reemplaza con tu dirección de correo de Gmail
-        pass: 'contraseña-de-aplicación',  // Aquí debes usar la contraseña de aplicación generada
+        user: 'Luistoarzola@gmail.com', 
+        pass: 'lqos kqda nejm psql', 
       },
     });
   }
