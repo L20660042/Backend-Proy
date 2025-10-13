@@ -4,9 +4,9 @@ import { AppModule } from './app.module';
 async function bootstrap() {
   const app = await NestFactory.create(AppModule);
 
-  // Permitir solicitudes desde el frontend que está en localhost:5173
+  // Permitir solicitudes desde el frontend de GitHub Pages
   app.enableCors({
-    origin: 'https://l20660042.github.io/Frontendproyecto/', // Este es el origen correcto de tu frontend
+    origin: 'https://l20660042.github.io', // Sin barra final al final de la URL
     methods: ['GET', 'POST', 'PUT', 'DELETE'], // Métodos permitidos
     allowedHeaders: ['Content-Type', 'Authorization'], // Cabeceras permitidas
   });
