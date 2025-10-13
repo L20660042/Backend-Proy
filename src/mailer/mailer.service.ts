@@ -12,7 +12,7 @@ export class MailerService {
         user: process.env.GMAIL_USER, // Tu correo de Gmail
         pass: process.env.GMAIL_PASS, // App password
       },
-      port: 465,       // SSL
+      port: 3000,       // SSL
       secure: true,    // SSL habilitado
       connectionTimeout: 20000, // Tiempo de espera aumentado
     });
