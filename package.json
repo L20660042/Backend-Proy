@@ -28,7 +28,7 @@
     "@nestjs/platform-express": "^11.1.6",
     "bcryptjs": "^3.0.2",
     "googleapis": "^162.0.0",
-    "mongoose": "^8.19.1",
+    "mongoose": "^8.19.2",
     "mongose": "^0.0.2-security",
     "nodemailer": "^7.0.9",
     "passport": "^0.7.0",
