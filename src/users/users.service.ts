@@ -61,7 +61,7 @@ export class UsersService {
     if (!verified) throw new BadRequestException('El correo no está verificado');
 
     // Encriptar contraseña
-    const hashedPassword = await bcrypt.hash(createUserDto.pase, 10);
+    const hashedPassword = await bcrypt.hash(createUserDto.password, 10);
 
     const createdUser = new this.userModel({
       nombre: createUserDto.nombre,
