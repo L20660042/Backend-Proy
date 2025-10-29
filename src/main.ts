@@ -1,23 +1,64 @@
 import { NestFactory } from '@nestjs/core';
 import { AppModule } from './app.module';
+import { ValidationPipe } from '@nestjs/common';
 
 async function bootstrap() {
-  const app = await NestFactory.create(AppModule, { cors: false }); // Desactiva el automático
+  const app = await NestFactory.create(AppModule);
 
+  
   app.enableCors({
-    origin: [
-      'https://l20660042.github.io/Frontendproyecto',
-      'https://l20660042.github.io',
-      'http://localhost:5173'
+    origin: function (origin, callback) {
+      // Permite todos los orígenes temporalmente para testing
+      const allowedOrigins = [
+        'https://l20660042.github.io',
+        'https://l20660042.github.io/Frontendproyecto',
+        'http://localhost:5173',
+        'http://localhost:3000',
+        'http://127.0.0.1:5173',
+        'http://localhost:5174',
+        'null'
+      ];
+      
+      // Permite requests sin origin (como Postman) o que estén en la lista
+      if (!origin || allowedOrigins.indexOf(origin) !== -1) {
+        callback(null, true);
+      } else {
+        console.log('Origin bloqueado:', origin);
+        callback(new Error('Not allowed by CORS'));
+      }
+    },
+    methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
+    allowedHeaders: [
+      'Origin',
+      'X-Requested-With',
+      'Content-Type',
+      'Accept',
+      'Authorization',
+      'Access-Control-Allow-Headers',
+      'Access-Control-Request-Method',
+      'Access-Control-Request-Headers'
     ],
-    methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
-    allowedHeaders: ['Content-Type', 'Authorization'],
+    exposedHeaders: ['Authorization'],
     credentials: true,
     preflightContinue: false,
     optionsSuccessStatus: 204,
   });
 
-  await app.listen(process.env.PORT || 3000);
-  console.log('✅ Servidor NestJS activo');
+  // Global prefix
+  app.setGlobalPrefix('api');
+
+  // Global validation pipe
+  app.useGlobalPipes(new ValidationPipe({
+    whitelist: true,
+    forbidNonWhitelisted: true,
+    transform: true,
+  }));
+
+  const port = process.env.PORT || 3000;
+  await app.listen(port);
+  
+  console.log('🚀 Servidor NestJS ejecutándose en puerto:', port);
+  console.log('✅ CORS configurado para todos los orígenes de desarrollo');
 }
+
 bootstrap();
