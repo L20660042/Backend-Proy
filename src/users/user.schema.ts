@@ -18,16 +18,7 @@ export class User extends Document {
   @Prop({ required: true })
   userType: string;
 
-  // Código de verificación temporal
-  @Prop()
-  verificationCode?: string;
-
-  // Fecha de expiración del código
-  @Prop()
-  verificationCodeExpires?: Date;
-
-  // Flag para saber si el correo ya fue verificado
-  @Prop({ default: false })
+  @Prop({ default: true }) // Siempre true ahora
   isVerified: boolean;
 }
 

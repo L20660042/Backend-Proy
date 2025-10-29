@@ -13,79 +13,10 @@ export class UsersService {
     private mailService: MailService,
   ) {}
 
-  async sendVerificationCode(email: string) {
-    try {
-      console.log('Enviando código de verificación a:', email);
-      
-      let user = await this.userModel.findOne({ correo: email });
-      if (!user) {
-        user = new this.userModel({ correo: email });
-      }
-
-      const code = Math.floor(100000 + Math.random() * 900000).toString();
-      user.verificationCode = code;
-      user.verificationCodeExpires = new Date(Date.now() + 15 * 60000);
-      await user.save();
-
-      await this.mailService.sendVerificationCode(email, code);
-      console.log('Código enviado exitosamente');
-      return { message: 'Código enviado' };
-    } catch (error) {
-      console.error('Error en sendVerificationCode:', error);
-      throw new BadRequestException('Error al enviar el correo');
-    }
-  }
-
-  async validateVerificationCode(email: string, code: string) {
-    try {
-      console.log('Validando código para:', email);
-      
-      const user = await this.userModel.findOne({ correo: email });
-      if (!user) {
-        throw new BadRequestException('Usuario no encontrado');
-      }
-
-      if (!user.verificationCode || user.verificationCode !== code) {
-        throw new BadRequestException('Código inválido');
-      }
-
-      if (!user.verificationCodeExpires || user.verificationCodeExpires < new Date()) {
-        throw new BadRequestException('Código expirado');
-      }
-
-      user.isVerified = true;
-      user.verificationCode = undefined;
-      user.verificationCodeExpires = undefined;
-      await user.save();
-
-      console.log('Código validado exitosamente');
-      return { message: 'Correo verificado correctamente' };
-    } catch (error) {
-      console.error('Error en validateVerificationCode:', error);
-      throw error;
-    }
-  }
-
-  async isEmailVerified(email: string): Promise<boolean> {
-    try {
-      const user = await this.userModel.findOne({ correo: email });
-      return user?.isVerified || false;
-    } catch (error) {
-      console.error('Error en isEmailVerified:', error);
-      return false;
-    }
-  }
-
   async create(createUserDto: CreateUserDto) {
     try {
       console.log('Creando usuario:', createUserDto.correo);
       
-      // Verificar si el correo está verificado
-      const verified = await this.isEmailVerified(createUserDto.correo);
-      if (!verified) {
-        throw new BadRequestException('El correo no está verificado');
-      }
-
       // Verificar si el usuario ya existe
       const existingUser = await this.userModel.findOne({ correo: createUserDto.correo });
       if (existingUser && existingUser.nombre) {
@@ -106,7 +37,7 @@ export class UsersService {
         correo: createUserDto.correo,
         password: hashedPassword,
         userType: createUserDto.userType,
-        isVerified: true,
+        isVerified: true, // Marcamos como verificado directamente
       };
 
       console.log('Datos del usuario a crear:', userData);
