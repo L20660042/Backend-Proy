@@ -5,13 +5,16 @@ async function bootstrap() {
   const app = await NestFactory.create(AppModule);
 
   // Permitir solicitudes desde el frontend de GitHub Pages
-app.enableCors({
-  origin: 'https://l20660042.github.io',  // Asegúrate de que esta URL sea la correcta
-  methods: ['GET', 'POST', 'PUT', 'DELETE'],
-  allowedHeaders: ['Content-Type', 'Authorization'],
-});
+  app.enableCors({
+    origin: 'https://l20660042.github.io',  // Asegúrate de que esta sea la URL correcta
+    methods: ['GET', 'POST', 'PUT', 'DELETE'],
+    allowedHeaders: ['Content-Type', 'Authorization'],
+  });
 
-
-  await app.listen(3000); // Asegúrate de que el backend esté escuchando en el puerto 3000
+  // Aquí usas el puerto dinámico de Railway
+  const port = process.env.PORT || 3000;
+  await app.listen(port);
+  console.log(`Servidor escuchando en el puerto ${port}`);
 }
+
 bootstrap();

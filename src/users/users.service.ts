@@ -1,66 +1,72 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, BadRequestException } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
 import { Model } from 'mongoose';
-import { User } from './user.schema';
-import { CreateUserDto } from './create-user.dto';
-import * as bcrypt from 'bcryptjs';
-import { MailerService } from '../mailer/mailer.service';
+import { User } from './user.schema';              // Ajusta el path si es necesario
+import { MailService } from '../mailer/mailer.service'; // Servicio de correo
+import { CreateUserDto } from './create-user.dto';  // DTO para registro
 
 @Injectable()
 export class UsersService {
   constructor(
-    @InjectModel('User') private userModel: Model<User>,
-    private readonly mailerService: MailerService,
+    @InjectModel(User.name) private userModel: Model<User>,
+    private mailService: MailService,
   ) {}
 
-  // 1️⃣ Enviar código de verificación
-  async sendVerificationEmail(email: string): Promise<void> {
+  async sendVerificationCode(email: string) {
+    let user = await this.userModel.findOne({ correo: email });
+    // Si no existe, crear usuario provisional
+    if (!user) {
+      user = new this.userModel({ correo: email });
+    }
     const code = Math.floor(100000 + Math.random() * 900000).toString();
-    const expires = new Date(Date.now() + 10 * 60 * 1000); // 10 minutos
-
-    await this.userModel.findOneAndUpdate(
-      { correo: email },
-      { verificationCode: code, verificationCodeExpires: expires, isVerified: false },
-      { upsert: true }
-    );
-
-    await this.mailerService.sendVerificationEmail(email, code);
-    console.log('Código enviado:', code);
-  }
-
-  // 2️⃣ Validar código de verificación
-  async validateCode(email: string, code: string): Promise<boolean> {
-    const user = await this.userModel.findOne({ correo: email });
-    if (!user) return false;
-
-    if (!user.verificationCode || user.verificationCode !== code) return false;
-    if (!user.verificationCodeExpires || user.verificationCodeExpires < new Date()) return false;
-
-    // Código válido, marcar como verificado y limpiar campos
-    user.verificationCode = undefined;
-    user.verificationCodeExpires = undefined;
-    user.isVerified = true;
+    user.verificationCode = code;
+    user.verificationCodeExpires = new Date(Date.now() + 15 * 60000); // 15 minutos
     await user.save();
 
-    return true;
+    try {
+      await this.mailService.sendVerificationCode(email, code);
+      return { message: 'Código enviado' };
+    } catch (error) {
+      throw new BadRequestException('Error al enviar el correo');
+    }
   }
 
-  // 3️⃣ Crear usuario (solo si ya verificó el correo)
-  async create(createUserDto: CreateUserDto): Promise<User> {
-    const { correo, pase, nombre, apellido, userType } = createUserDto;
-
-    const user = await this.userModel.findOne({ correo });
-    if (!user || !user.isVerified) {
-      throw new Error('El correo no ha sido verificado');
+  async validateVerificationCode(email: string, code: string) {
+    const user = await this.userModel.findOne({ correo: email });
+    if (
+      !user ||
+      user.verificationCode !== code ||
+      !user.verificationCodeExpires ||
+      user.verificationCodeExpires < new Date()
+    ) {
+      throw new BadRequestException('Código inválido o expirado');
     }
+    user.isVerified = true;
+    user.verificationCode = undefined;
+    user.verificationCodeExpires = undefined;
+    await user.save();
+    return { message: 'Correo verificado correctamente' };
+  }
 
-    const hashedPassword = await bcrypt.hash(pase, 10);
+  async isEmailVerified(email: string): Promise<boolean> {
+    const user = await this.userModel.findOne({ correo: email });
+    return user?.isVerified || false;
+  }
 
-    user.nombre = nombre;
-    user.apellido = apellido;
-    user.password = hashedPassword;
-    user.userType = userType;
+  async create(createUserDto: CreateUserDto) {
+    // Verifica si el correo ya está verificado
+    const verified = await this.isEmailVerified(createUserDto.correo);
+    if (!verified) throw new BadRequestException('El correo no está verificado');
 
-    return await user.save();
+    // Crea usuario definitivo
+    const createdUser = new this.userModel({
+      nombre: createUserDto.nombre,
+      apellido: createUserDto.apellido,
+      correo: createUserDto.correo,
+      password: createUserDto.pase,
+      userType: createUserDto.userType,
+      isVerified: true
+    });
+    return createdUser.save();
   }
 }

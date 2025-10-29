@@ -2,36 +2,29 @@ import { Injectable } from '@nestjs/common';
 import * as nodemailer from 'nodemailer';
 
 @Injectable()
-export class MailerService {
+export class MailService {
   private transporter;
 
   constructor() {
     this.transporter = nodemailer.createTransport({
-      host: 'smtp.gmail.com',
-      port: 587,           // STARTTLS
-      secure: false,       // false porque STARTTLS
+      host: process.env.SMTP_HOST,
+      port: Number(process.env.SMTP_PORT),
+      secure: false,
       auth: {
-        user: process.env.GMAIL_USER,
-        pass: process.env.GMAIL_PASS, // tu contraseña de app (no la normal)
-      },
-      tls: {
-        rejectUnauthorized: false, // importante en Railway
+        user: process.env.SMTP_USER,
+        pass: process.env.SMTP_PASS,
       },
     });
   }
 
-  async sendVerificationEmail(email: string, code: string) {
-    try {
-      await this.transporter.sendMail({
-        from: `"Mi App" <${process.env.GMAIL_USER}>`,
-        to: email,
-        subject: 'Código de verificación',
-        html: `<h1>Tu código de verificación es: ${code}</h1>`,
-      });
-      console.log('Correo enviado a', email);
-    } catch (error) {
-      console.error('Error al enviar el correo:', error);
-      throw error;
-    }
+  async sendVerificationCode(to: string, code: string) {
+    const mailOptions = {
+      from: `"Metricampus" <${process.env.SMTP_USER}>`,
+      to,
+      subject: 'Código de verificación',
+      text: `Tu código de verificación es: ${code}`,
+    };
+
+    return this.transporter.sendMail(mailOptions);
   }
 }
