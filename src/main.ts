@@ -5,9 +5,12 @@ import { ValidationPipe } from '@nestjs/common';
 async function bootstrap() {
   const app = await NestFactory.create(AppModule);
 
-  // Configuración CORS MÁS AGRESIVA para Railway
+  // Configuración CORS para producción
   app.enableCors({
-    origin: true, // Permite TODOS los orígenes
+    origin: [
+      'http://localhost:5173',
+      'https://l20660042.github.io/Frontendproyecto'
+    ],
     methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
     allowedHeaders: [
       'Origin',
@@ -15,36 +18,11 @@ async function bootstrap() {
       'Content-Type',
       'Accept',
       'Authorization',
-      'Access-Control-Allow-Origin',
-      'Access-Control-Allow-Headers',
-      'Access-Control-Request-Method',
-      'Access-Control-Request-Headers'
-    ],
-    exposedHeaders: [
-      'Authorization',
-      'Access-Control-Allow-Origin',
-      'Access-Control-Allow-Credentials'
     ],
     credentials: true,
-    preflightContinue: false,
-    optionsSuccessStatus: 204,
   });
 
-  // Agrega middleware manual para CORS
-  app.use((req: any, res: any, next: any) => {
-    res.header('Access-Control-Allow-Origin', '*');
-    res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, PATCH, OPTIONS');
-    res.header('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Requested-With, Accept, Origin');
-    res.header('Access-Control-Expose-Headers', 'Authorization');
-    
-    if (req.method === 'OPTIONS') {
-      return res.status(200).end();
-    }
-    
-    next();
-  });
-
-  // Global prefix
+  // Global prefix - importante para producción
   app.setGlobalPrefix('api');
 
   // Global validation pipe
@@ -58,7 +36,7 @@ async function bootstrap() {
   await app.listen(port);
   
   console.log('🚀 Servidor NestJS ejecutándose en puerto:', port);
-  console.log('✅ CORS configurado para TODOS los orígenes');
+  console.log('✅ CORS configurado para producción');
   console.log('📧 Endpoints disponibles bajo /api');
 }
 
