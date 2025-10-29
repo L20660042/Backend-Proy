@@ -2,21 +2,22 @@ import { NestFactory } from '@nestjs/core';
 import { AppModule } from './app.module';
 
 async function bootstrap() {
-  const app = await NestFactory.create(AppModule);
+  const app = await NestFactory.create(AppModule, { cors: false }); // Desactiva el automático
 
   app.enableCors({
     origin: [
-      'https://l20660042.github.io/Frontendproyecto', // Página pública exacta
-      'https://l20660042.github.io',                  // Página raíz Github
-      'http://localhost:5173'                        // Local testing
+      'https://l20660042.github.io/Frontendproyecto',
+      'https://l20660042.github.io',
+      'http://localhost:5173'
     ],
     methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
     allowedHeaders: ['Content-Type', 'Authorization'],
+    credentials: true,
+    preflightContinue: false,
+    optionsSuccessStatus: 204,
   });
 
-  const port = process.env.PORT || 3000;
-  await app.listen(port);
-  console.log(`Servidor escuchando en el puerto ${port}`);
+  await app.listen(process.env.PORT || 3000);
+  console.log('✅ Servidor NestJS activo');
 }
-
 bootstrap();
