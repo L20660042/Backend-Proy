@@ -7,7 +7,7 @@ async function bootstrap() {
   // Permitir solicitudes desde el frontend de GitHub Pages
   app.enableCors({
     origin: ['https://l20660042.github.io',
-    'http://localhost:3000'],
+    'http://localhost:5173'],
     methods: ['GET', 'POST', 'PUT', 'DELETE'],
     allowedHeaders: ['Content-Type', 'Authorization'],
   });
