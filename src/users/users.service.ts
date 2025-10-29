@@ -13,10 +13,13 @@ export class UsersService {
 
   async create(createUserDto: CreateUserDto) {
     try {
-      console.log('Creando usuario:', createUserDto.correo);
+      console.log('📥 Recibiendo solicitud de registro para:', createUserDto.correo);
+      console.log('📋 Datos recibidos:', createUserDto);
       
       // Verificar si el usuario ya existe
       const existingUser = await this.userModel.findOne({ correo: createUserDto.correo });
+      console.log('🔍 Usuario existente:', existingUser ? 'Sí' : 'No');
+      
       if (existingUser && existingUser.nombre) {
         throw new BadRequestException('El usuario ya existe');
       }
@@ -38,7 +41,7 @@ export class UsersService {
         isVerified: true,
       };
 
-      console.log('Datos del usuario a crear:', userData);
+      console.log('💾 Datos del usuario a guardar:', userData);
 
       // Si el usuario existe pero solo tiene correo, actualizarlo
       if (existingUser) {
@@ -47,18 +50,18 @@ export class UsersService {
           userData,
           { new: true }
         );
-        console.log('Usuario actualizado:', updatedUser);
+        console.log('✅ Usuario actualizado:', updatedUser);
         return updatedUser;
       }
 
       // Si no existe, crear nuevo usuario
       const createdUser = new this.userModel(userData);
       const savedUser = await createdUser.save();
-      console.log('Usuario creado exitosamente:', savedUser);
+      console.log('✅ Usuario creado exitosamente:', savedUser);
       
       return savedUser;
     } catch (error) {
-      console.error('Error en create user:', error);
+      console.error('❌ Error en create user:', error);
       if (error.code === 11000) {
         throw new BadRequestException('El correo electrónico ya está registrado');
       }

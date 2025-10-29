@@ -9,19 +9,17 @@ async function bootstrap() {
   try {
     const app = await NestFactory.create(AppModule);
 
-    // Configuración CORS
+    // Configuración CORS ACTUALIZADA
     app.enableCors({
       origin: [
         'http://localhost:5173',
-        'https://l20660042.github.io/Frontendproyecto'
+        'https://l20660042.github.io'
       ],
       methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
       allowedHeaders: [
-        'Origin',
-        'X-Requested-With',
         'Content-Type',
-        'Accept',
         'Authorization',
+        'Accept'
       ],
       credentials: true,
     });

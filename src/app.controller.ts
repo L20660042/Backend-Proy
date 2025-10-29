@@ -9,4 +9,14 @@ export class AppController {
   getHello(): string {
     return this.appService.getHello();
   }
+
+  // AGREGAR ESTO para health check
+  @Get('health')
+  healthCheck() {
+    return { 
+      status: 'OK', 
+      timestamp: new Date().toISOString(),
+      message: 'Backend funcionando correctamente'
+    };
+  }
 }
