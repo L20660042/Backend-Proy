@@ -5,28 +5,9 @@ import { ValidationPipe } from '@nestjs/common';
 async function bootstrap() {
   const app = await NestFactory.create(AppModule);
 
-  
+  // Configuración CORS MÁS AGRESIVA para Railway
   app.enableCors({
-    origin: function (origin, callback) {
-      // Permite todos los orígenes temporalmente para testing
-      const allowedOrigins = [
-        'https://l20660042.github.io',
-        'https://l20660042.github.io/Frontendproyecto',
-        'http://localhost:5173',
-        'http://localhost:3000',
-        'http://127.0.0.1:5173',
-        'http://localhost:5174',
-        'null'
-      ];
-      
-      // Permite requests sin origin (como Postman) o que estén en la lista
-      if (!origin || allowedOrigins.indexOf(origin) !== -1) {
-        callback(null, true);
-      } else {
-        console.log('Origin bloqueado:', origin);
-        callback(new Error('Not allowed by CORS'));
-      }
-    },
+    origin: true, // Permite TODOS los orígenes
     methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
     allowedHeaders: [
       'Origin',
@@ -34,14 +15,33 @@ async function bootstrap() {
       'Content-Type',
       'Accept',
       'Authorization',
+      'Access-Control-Allow-Origin',
       'Access-Control-Allow-Headers',
       'Access-Control-Request-Method',
       'Access-Control-Request-Headers'
     ],
-    exposedHeaders: ['Authorization'],
+    exposedHeaders: [
+      'Authorization',
+      'Access-Control-Allow-Origin',
+      'Access-Control-Allow-Credentials'
+    ],
     credentials: true,
     preflightContinue: false,
     optionsSuccessStatus: 204,
+  });
+
+  // Agrega middleware manual para CORS
+  app.use((req: any, res: any, next: any) => {
+    res.header('Access-Control-Allow-Origin', '*');
+    res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, PATCH, OPTIONS');
+    res.header('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Requested-With, Accept, Origin');
+    res.header('Access-Control-Expose-Headers', 'Authorization');
+    
+    if (req.method === 'OPTIONS') {
+      return res.status(200).end();
+    }
+    
+    next();
   });
 
   // Global prefix
@@ -58,7 +58,8 @@ async function bootstrap() {
   await app.listen(port);
   
   console.log('🚀 Servidor NestJS ejecutándose en puerto:', port);
-  console.log('✅ CORS configurado para todos los orígenes de desarrollo');
+  console.log('✅ CORS configurado para TODOS los orígenes');
+  console.log('📧 Endpoints disponibles bajo /api');
 }
 
 bootstrap();
