@@ -20,6 +20,9 @@
     "test:e2e": "jest --config ./test/jest-e2e.json"
   },
   "dependencies": {
+    "@emotion/react": "^11.14.0",
+    "@emotion/styled": "^11.14.1",
+    "@mui/material": "^7.3.4",
     "@nestjs/common": "^11.1.6",
     "@nestjs/core": "^11.0.1",
     "@nestjs/jwt": "^11.0.1",
