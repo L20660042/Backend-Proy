@@ -6,7 +6,7 @@ async function bootstrap() {
 
   // Permitir solicitudes desde el frontend de GitHub Pages
   app.enableCors({
-    origin: 'https://l20660042.github.io',  // Asegúrate de que esta sea la URL correcta
+    origin: 'https://l20660042.github.io/Frontendproyecto',
     methods: ['GET', 'POST', 'PUT', 'DELETE'],
     allowedHeaders: ['Content-Type', 'Authorization'],
   });
