@@ -1,9 +1,10 @@
 import { Injectable, BadRequestException } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
 import { Model } from 'mongoose';
-import { User } from './user.schema';              // Ajusta el path si es necesario
-import { MailService } from '../mailer/mailer.service'; // Servicio de correo
-import { CreateUserDto } from './create-user.dto';  // DTO para registro
+import { User } from './user.schema';
+import { MailService } from '../mailer/mailer.service';
+import { CreateUserDto } from './create-user.dto';
+import * as bcrypt from 'bcryptjs';
 
 @Injectable()
 export class UsersService {
@@ -14,13 +15,13 @@ export class UsersService {
 
   async sendVerificationCode(email: string) {
     let user = await this.userModel.findOne({ correo: email });
-    // Si no existe, crear usuario provisional
     if (!user) {
       user = new this.userModel({ correo: email });
     }
+
     const code = Math.floor(100000 + Math.random() * 900000).toString();
     user.verificationCode = code;
-    user.verificationCodeExpires = new Date(Date.now() + 15 * 60000); // 15 minutos
+    user.verificationCodeExpires = new Date(Date.now() + 15 * 60000);
     await user.save();
 
     try {
@@ -41,10 +42,12 @@ export class UsersService {
     ) {
       throw new BadRequestException('Código inválido o expirado');
     }
+
     user.isVerified = true;
     user.verificationCode = undefined;
     user.verificationCodeExpires = undefined;
     await user.save();
+
     return { message: 'Correo verificado correctamente' };
   }
 
@@ -54,19 +57,21 @@ export class UsersService {
   }
 
   async create(createUserDto: CreateUserDto) {
-    // Verifica si el correo ya está verificado
     const verified = await this.isEmailVerified(createUserDto.correo);
     if (!verified) throw new BadRequestException('El correo no está verificado');
 
-    // Crea usuario definitivo
+    // Encriptar contraseña
+    const hashedPassword = await bcrypt.hash(createUserDto.pase, 10);
+
     const createdUser = new this.userModel({
       nombre: createUserDto.nombre,
       apellido: createUserDto.apellido,
       correo: createUserDto.correo,
-      password: createUserDto.pase,
+      password: hashedPassword,
       userType: createUserDto.userType,
-      isVerified: true
+      isVerified: true,
     });
+
     return createdUser.save();
   }
 }

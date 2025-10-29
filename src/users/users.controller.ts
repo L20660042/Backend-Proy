@@ -20,4 +20,5 @@ export class UsersController {
   register(@Body() createUserDto: CreateUserDto) {
     return this.usersService.create(createUserDto);
   }
+
 }
