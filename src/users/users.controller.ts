@@ -1,4 +1,4 @@
-import { Body, Controller, Post } from '@nestjs/common';
+import { Body, Controller, Post, BadRequestException } from '@nestjs/common';
 import { UsersService } from './users.service';
 import { RegisterUserDto } from './dto/register-user.dto';
 
@@ -6,17 +6,23 @@ import { RegisterUserDto } from './dto/register-user.dto';
 export class UsersController {
   constructor(private readonly users: UsersService) {}
 
-  // mapeo de los nombres que tu frontend ya envía
   @Post('register')
-register(@Body() body: any) {
-  console.log("Datos recibidos para el registro:", body); // Log para depuración
-  const dto: RegisterUserDto = {
-    firstName: body.nombre,
-    lastName: body.apellido,
-    email: body.correo,
-    password: body.password,
-    userType: body.userType,
-  };
-  return this.users.register(dto);
-}
+  async register(@Body() body: any) {
+    console.log("Datos recibidos para el registro:", body);
+    
+    // Validar que las contraseñas coincidan
+    if (body.password !== body.confirmPassword) {
+      throw new BadRequestException('Las contraseñas no coinciden');
+    }
+
+    const dto: RegisterUserDto = {
+      firstName: body.nombre,
+      lastName: body.apellido,
+      email: body.correo,
+      password: body.password,
+      userType: body.userType,
+    };
+
+    return this.users.register(dto);
+  }
 }
