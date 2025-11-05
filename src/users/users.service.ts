@@ -16,15 +16,27 @@ export class UsersService {
   // mem-store de códigos (en prod usa una colección con TTL o Redis)
   private codes = new Map<string, { code: string; exp: number }>();
 
-  private genCode() { return String(Math.floor(100000 + Math.random() * 900000)); }
+  private genCode() {
+    return String(Math.floor(100000 + Math.random() * 900000));
+  }
 
   async sendVerificationCode(email: string) {
     const code = this.genCode();
     this.codes.set(email, { code, exp: Date.now() + 10 * 60 * 1000 });
+
+    // Comprobamos si las variables de entorno SMTP están configuradas
+    const { SMTP_HOST, SMTP_PORT, SMTP_USER, SMTP_PASS } = process.env;
+    if (!SMTP_HOST || !SMTP_PORT || !SMTP_USER || !SMTP_PASS) {
+      throw new BadRequestException('Faltan configuraciones de SMTP en el entorno');
+    }
+
     try {
+      // Intentamos enviar el código
       await this.mail.sendCode(email, code);
-    } catch {
-      throw new BadRequestException('No se pudo enviar el código');
+    } catch (e: any) {
+      // Aquí mostramos los detalles del error para facilitar el diagnóstico
+      console.error('SMTP error:', e?.message, e?.code, e?.response);
+      throw new BadRequestException(`No se pudo enviar el código: ${e?.message || 'Error desconocido'}`);
     }
     return { ok: true };
   }
@@ -32,7 +44,10 @@ export class UsersService {
   validateCode(email: string, code: string) {
     const entry = this.codes.get(email);
     if (!entry) throw new BadRequestException('Solicita un código primero');
-    if (Date.now() > entry.exp) { this.codes.delete(email); throw new BadRequestException('Código expirado'); }
+    if (Date.now() > entry.exp) {
+      this.codes.delete(email);
+      throw new BadRequestException('Código expirado');
+    }
     if (entry.code !== code) throw new BadRequestException('Código inválido');
     return { ok: true };
   }
