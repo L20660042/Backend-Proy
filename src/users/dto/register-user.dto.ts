@@ -4,5 +4,5 @@ export class RegisterUserDto {
   @IsString() lastName: string;   // mapearemos desde "apellido"
   @IsEmail() email: string;       // mapearemos desde "correo"
   @IsString() @MinLength(8) password: string;
-  @IsString() userType: 'subdirector-academico'|'jefes-academicos'|'tutores'|'docentes'|'coordinadores';
+  @IsString() userType: 'subdirector-academico'|'jefes-academicos'|'docentes';
 } 
