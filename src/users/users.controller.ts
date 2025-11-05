@@ -8,16 +8,6 @@ import { RegisterUserDto } from './dto/register-user.dto';
 export class UsersController {
   constructor(private readonly users: UsersService) {}
 
-  @Post('send-verification-code')
-  sendCode(@Body() body: SendCodeDto) {
-    return this.users.sendVerificationCode(body.email);
-  }
-
-  @Post('validate-code')
-  validate(@Body() body: ValidateCodeDto) {
-    return this.users.validateCode(body.email, body.code);
-  }
-
   // mapeo de los nombres que tu frontend ya envía
   @Post('register')
   register(@Body() body: any) {
