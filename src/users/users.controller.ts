@@ -1,28 +1,55 @@
-import { Body, Controller, Post, BadRequestException } from '@nestjs/common';
+import { Controller, Post, Body, HttpException, HttpStatus } from '@nestjs/common';
 import { UsersService } from './users.service';
-import { RegisterUserDto } from './dto/register-user.dto';
+import { CreateUserDto } from './DTO/create-user.dto';
+import { LoginDto } from './DTO/login.dto';
 
 @Controller('users')
 export class UsersController {
-  constructor(private readonly users: UsersService) {}
+  constructor(private readonly usersService: UsersService) {}
 
+  // Endpoint para registro de usuarios
   @Post('register')
-  async register(@Body() body: any) {
-    console.log("Datos recibidos para el registro:", body);
-    
-    // Validar que las contraseñas coincidan
-    if (body.password !== body.confirmPassword) {
-      throw new BadRequestException('Las contraseñas no coinciden');
+  async register(@Body() createUserDto: CreateUserDto) {
+    try {
+      return await this.usersService.create(createUserDto);
+    } catch (error) {
+      throw new HttpException(
+        error.message || 'Error en el registro',
+        HttpStatus.BAD_REQUEST
+      );
     }
+  }
 
-    const dto: RegisterUserDto = {
-      firstName: body.nombre,
-      lastName: body.apellido,
-      email: body.correo,
-      password: body.password,
-      userType: body.userType,
-    };
+  // Endpoint para login 
+  @Post('login')
+  async login(@Body() loginDto: LoginDto) {
+    try {
+      console.log('Solicitud de login recibida para:', loginDto.email);
+      const { user, token } = await this.usersService.validateUserPassword(
+        loginDto.email, 
+        loginDto.password
+      );
 
-    return this.users.register(dto);
+      return {
+        success: true,
+        token,
+        user: {
+          id: user._id,
+          firstName: user.firstName,
+          lastName: user.lastName,
+          email: user.email,
+          userType: user.userType,
+        },
+      };
+    } catch (error) {
+      console.error('Error en login:', error.message);
+      throw new HttpException(
+        { 
+          success: false,
+          error: error.message 
+        },
+        HttpStatus.UNAUTHORIZED
+      );
+    }
   }
 }
