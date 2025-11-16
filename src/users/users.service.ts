@@ -52,4 +52,8 @@ export class UsersService {
     console.log('Login exitoso, token generado');
     return { user, token };
   }
+  
+  async getProfile(userId: string): Promise<User> {
+    return this.userModel.findById(userId).select('-password');  // Excluir la contraseña
+  }
 }

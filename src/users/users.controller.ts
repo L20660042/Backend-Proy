@@ -1,4 +1,5 @@
-import { Controller, Post, Body, HttpException, HttpStatus } from '@nestjs/common';
+import { Controller, Get, UseGuards, Request, Post, Body, HttpException, HttpStatus } from '@nestjs/common';
+import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { UsersService } from './users.service';
 import { CreateUserDto } from './DTO/create-user.dto';
 import { LoginDto } from './DTO/login.dto';
@@ -19,7 +20,11 @@ export class UsersController {
       );
     }
   }
-
+ @Get('profile')
+  @UseGuards(JwtAuthGuard)  // Aseguramos que solo los usuarios autenticados puedan acceder
+  async getProfile(@Request() req) {
+    return this.usersService.getProfile(req.user.id);  // Asegúrate de que `req.user.id` contiene el ID del usuario autenticado
+  }
   // Endpoint para login 
   @Post('login')
   async login(@Body() loginDto: LoginDto) {
