@@ -43,7 +43,7 @@ export class UsersService {
       throw new Error('Contraseña incorrecta');
     }
 
-    // Generar el token JWT - CORREGIDO: usar type assertion
+    // Generar el token JWT
     const token = this.jwtService.sign({ 
       userId: (user._id as Types.ObjectId).toString(), 
       userType: user.userType 
@@ -54,6 +54,54 @@ export class UsersService {
   }
   
   async getProfile(userId: string): Promise<User> {
-    return this.userModel.findById(userId).select('-password');  // Excluir la contraseña
+    const user = await this.userModel.findById(userId).select('-password');
+    if (!user) {
+      throw new Error('Usuario no encontrado');
+    }
+    return user;
+  }
+
+  async updateProfile(userId: string, updateData: any): Promise<User> {
+    const user = await this.userModel.findByIdAndUpdate(
+      userId,
+      { 
+        $set: {
+          firstName: updateData.firstName,
+          lastName: updateData.lastName,
+          email: updateData.email
+        }
+      },
+      { new: true }
+    ).select('-password');
+    
+    if (!user) {
+      throw new Error('Usuario no encontrado');
+    }
+    
+    return user;
+  }
+
+  async changePassword(userId: string, currentPassword: string, newPassword: string): Promise<{ message: string }> {
+    const user = await this.userModel.findById(userId);
+    
+    if (!user) {
+      throw new Error('Usuario no encontrado');
+    }
+
+    // Verificar contraseña actual
+    const isMatch = await bcrypt.compare(currentPassword, user.password);
+    if (!isMatch) {
+      throw new Error('Contraseña actual incorrecta');
+    }
+
+    // Hashear nueva contraseña
+    const salt = await bcrypt.genSalt(10);
+    const hashedPassword = await bcrypt.hash(newPassword, salt);
+
+    // Actualizar contraseña
+    user.password = hashedPassword;
+    await user.save();
+
+    return { message: 'Contraseña actualizada correctamente' };
   }
 }

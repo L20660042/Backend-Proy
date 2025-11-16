@@ -1,4 +1,4 @@
-import { Controller, Get, UseGuards, Request, Post, Body, HttpException, HttpStatus } from '@nestjs/common';
+import { Controller, Get, UseGuards, Request, Post, Body, HttpException, HttpStatus, Put } from '@nestjs/common';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { UsersService } from './users.service';
 import { CreateUserDto } from './DTO/create-user.dto';
@@ -20,11 +20,20 @@ export class UsersController {
       );
     }
   }
- @Get('profile')
-  @UseGuards(JwtAuthGuard)  // Aseguramos que solo los usuarios autenticados puedan acceder
+
+  @Get('profile')
+  @UseGuards(JwtAuthGuard)
   async getProfile(@Request() req) {
-    return this.usersService.getProfile(req.user.id);  // Asegúrate de que `req.user.id` contiene el ID del usuario autenticado
+    try {
+      return await this.usersService.getProfile(req.user.userId);
+    } catch (error) {
+      throw new HttpException(
+        error.message || 'Error al obtener perfil',
+        HttpStatus.BAD_REQUEST
+      );
+    }
   }
+
   // Endpoint para login 
   @Post('login')
   async login(@Body() loginDto: LoginDto) {
@@ -54,6 +63,36 @@ export class UsersController {
           error: error.message 
         },
         HttpStatus.UNAUTHORIZED
+      );
+    }
+  }
+
+  @Put('profile')
+  @UseGuards(JwtAuthGuard)
+  async updateProfile(@Request() req, @Body() updateData: any) {
+    try {
+      return await this.usersService.updateProfile(req.user.userId, updateData);
+    } catch (error) {
+      throw new HttpException(
+        error.message || 'Error al actualizar perfil',
+        HttpStatus.BAD_REQUEST
+      );
+    }
+  }
+
+  @Put('change-password')
+  @UseGuards(JwtAuthGuard)
+  async changePassword(@Request() req, @Body() body: { currentPassword: string, newPassword: string }) {
+    try {
+      return await this.usersService.changePassword(
+        req.user.userId,
+        body.currentPassword,
+        body.newPassword
+      );
+    } catch (error) {
+      throw new HttpException(
+        error.message || 'Error al cambiar contraseña',
+        HttpStatus.BAD_REQUEST
       );
     }
   }
