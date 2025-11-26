@@ -3,5 +3,6 @@ export class CreateUserDto {
   lastName: string;
   email: string;
   password: string;
-  userType: string;
+  userType: 'administrador-general' | 'jefe-departamento' | 'docente' | 'tutor' | 'coordinador-tutorias' | 'control-escolar' | 'subdireccion-academica';
+  institution?: string;
 }
