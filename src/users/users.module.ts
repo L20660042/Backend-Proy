@@ -4,7 +4,6 @@ import { JwtModule } from '@nestjs/jwt';
 import { UsersService } from './users.service';
 import { UsersController } from './users.controller';
 import { User, UserSchema } from './user.schema';
-import { PermissionsService } from './../Permisos/permissions.service';
 
 @Module({
   imports: [
@@ -14,8 +13,8 @@ import { PermissionsService } from './../Permisos/permissions.service';
       signOptions: { expiresIn: '24h' }, 
     }),
   ],
-  providers: [UsersService, PermissionsService], 
+  providers: [UsersService], 
   controllers: [UsersController],
-  exports: [UsersService, JwtModule, PermissionsService]
+  exports: [UsersService, JwtModule]
 })
 export class UsersModule {}

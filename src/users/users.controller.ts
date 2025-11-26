@@ -1,14 +1,4 @@
-import { 
-  Controller, 
-  Get, 
-  UseGuards, 
-  Request, 
-  Post, 
-  Body, 
-  HttpException, 
-  HttpStatus, 
-  Put 
-} from '@nestjs/common';
+import { Controller, Get, UseGuards, Request, Post, Body, HttpException, HttpStatus, Put } from '@nestjs/common';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { UsersService } from './users.service';
 import { CreateUserDto } from './DTO/create-user.dto';
@@ -63,7 +53,6 @@ export class UsersController {
           lastName: user.lastName,
           email: user.email,
           userType: user.userType,
-          permissions: user.permissions, // Agregar permisos a la respuesta
         },
       };
     } catch (error) {
@@ -103,21 +92,6 @@ export class UsersController {
     } catch (error) {
       throw new HttpException(
         error.message || 'Error al cambiar contraseña',
-        HttpStatus.BAD_REQUEST
-      );
-    }
-  }
-
-  // Nuevo endpoint para obtener permisos del usuario
-  @Get('permissions')
-  @UseGuards(JwtAuthGuard)
-  async getPermissions(@Request() req) {
-    try {
-      const permissions = await this.usersService.getUserPermissions(req.user.userId);
-      return { permissions };
-    } catch (error) {
-      throw new HttpException(
-        error.message || 'Error al obtener permisos',
         HttpStatus.BAD_REQUEST
       );
     }
