@@ -43,7 +43,7 @@ export class UsersController {
           firstName: user.firstName,
           lastName: user.lastName,
           email: user.email,
-          userType: user.userType,
+          userType: user.user_type,
         },
       };
     } catch (error) {

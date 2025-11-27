@@ -46,7 +46,7 @@ export class UsersService {
     // Generar el token JWT
     const token = this.jwtService.sign({ 
       userId: (user._id as Types.ObjectId).toString(), 
-      userType: user.userType 
+      userType: user.user_type 
     });
 
     console.log('Login exitoso, token generado');

@@ -30,7 +30,7 @@ export class InstitutionService {
 
     // Solo administradores y jefes académicos pueden crear instituciones
     const allowedUserTypes = ['administrador', 'jefe-departamento', 'subdireccion-academica'];
-    if (!allowedUserTypes.includes(creator.userType)) {
+    if (!allowedUserTypes.includes(creator.user_type)) {
       throw new ForbiddenException('No tienes permisos para crear instituciones');
     }
 
@@ -117,7 +117,7 @@ export class InstitutionService {
         ...studentData
       });
       await student.save();
-    } else if (student.userType !== 'estudiante') {
+    } else if (student.user_type !== 'estudiante') {
       throw new BadRequestException('El usuario no es un estudiante');
     }
 
@@ -170,7 +170,7 @@ export class InstitutionService {
     }
 
     const teacher = await this.userModel.findById(teacherId);
-    if (!teacher || teacher.userType !== 'docente') {
+    if (!teacher || teacher.user_type !== 'docente') {
       throw new NotFoundException('Docente no encontrado');
     }
 
@@ -352,7 +352,7 @@ export class InstitutionService {
     
     if (!isCreator) {
       const addedByUser = await this.userModel.findById(addedBy);
-      if (addedByUser?.userType !== 'administrador') {
+      if (addedByUser?.user_type !== 'administrador') {
         throw new ForbiddenException('No tienes permisos para agregar staff académico');
       }
     }
