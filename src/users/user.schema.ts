@@ -15,7 +15,19 @@ export class User extends Document {
   @Prop({ required: true })
   password: string;
 
-  @Prop({ required: true, enum: ['docente', 'jefe-academico', 'subdirector-academico'] })
+  @Prop({ 
+    required: true, 
+    enum: [
+      'administrador',
+      'jefe-departamento', 
+      'docente',
+      'tutor',
+      'coordinador-tutorias',
+      'control-escolar',
+      'subdireccion-academica',
+      'estudiante'
+    ] 
+  })
   userType: string;
 
   @Prop({ type: Types.ObjectId, ref: 'Institution' })
@@ -23,9 +35,24 @@ export class User extends Document {
 
   @Prop({ default: true })
   isActive: boolean;
+
+  // Campos específicos para estudiantes
+  @Prop()
+  studentId?: string;
+
+  @Prop()
+  enrollmentGroup?: string;
+
+  @Prop()
+  semester?: number;
+
+  // Campos específicos para docentes/tutores
+  @Prop()
+  specialty?: string;
+
+  @Prop()
+  professionalId?: string;
 }
 
 export const UserSchema = SchemaFactory.createForClass(User);
-
-// Tipo para documentos de usuario
 export type UserDocument = User & Document;

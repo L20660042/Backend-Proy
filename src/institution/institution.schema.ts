@@ -4,6 +4,7 @@ import { Document, Types } from 'mongoose';
 export type JoinRequest = {
   teacherId: Types.ObjectId;
   status: 'pending' | 'approved' | 'rejected';
+  requestedAt: Date;
 };
 
 @Schema()
@@ -17,6 +18,15 @@ export class Institution extends Document {
   @Prop()
   phone?: string;
 
+  @Prop()
+  email?: string;
+
+  @Prop()
+  website?: string;
+
+  @Prop()
+  directorName?: string;
+
   @Prop({ type: Types.ObjectId, ref: 'User', required: true })
   createdBy: Types.ObjectId;
 
@@ -26,11 +36,21 @@ export class Institution extends Document {
   @Prop([{ type: Types.ObjectId, ref: 'User' }])
   teachers: Types.ObjectId[];
 
+  @Prop([{ type: Types.ObjectId, ref: 'User' }])
+  students: Types.ObjectId[];
+
   @Prop([{
     teacherId: { type: Types.ObjectId, ref: 'User', required: true },
-    status: { type: String, enum: ['pending', 'approved', 'rejected'], default: 'pending' }
+    status: { type: String, enum: ['pending', 'approved', 'rejected'], default: 'pending' },
+    requestedAt: { type: Date, default: Date.now }
   }])
   joinRequests: JoinRequest[];
+
+  @Prop({ default: true })
+  isActive: boolean;
+
+  @Prop({ default: Date.now })
+  createdAt: Date;
 }
 
 export const InstitutionSchema = SchemaFactory.createForClass(Institution);
