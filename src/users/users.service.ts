@@ -1,16 +1,16 @@
 import { Injectable } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
 import { Model, Types } from 'mongoose';
+import { JwtService } from '@nestjs/jwt'; // Importar JwtService
 import { User } from './user.schema';
 import { CreateUserDto } from './DTO/create-user.dto';
 import * as bcrypt from 'bcryptjs';
-import { JwtService } from '@nestjs/jwt';
 
 @Injectable()
 export class UsersService {
   constructor(
     @InjectModel(User.name) private userModel: Model<User>,
-    private jwtService: JwtService,
+    private jwtService: JwtService, // Inyectar JwtService
   ) {}
 
   // Método para crear un nuevo usuario
@@ -43,7 +43,7 @@ export class UsersService {
       throw new Error('Contraseña incorrecta');
     }
 
-    // Generar el token JWT - CORREGIDO: usar type assertion
+    // Generar el token JWT
     const token = this.jwtService.sign({ 
       userId: (user._id as Types.ObjectId).toString(), 
       userType: user.userType 

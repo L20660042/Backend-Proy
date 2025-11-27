@@ -6,6 +6,7 @@ import { Grade, GradeSchema } from './grade.schema';
 import { User, UserSchema } from '../users/user.schema';
 import { Subject, SubjectSchema } from '../subjects/subject.schema';
 import { Group, GroupSchema } from '../groups/group.schema';
+import { AuthModule } from '../auth/auth.module';
 
 @Module({
   imports: [
@@ -15,6 +16,7 @@ import { Group, GroupSchema } from '../groups/group.schema';
       { name: Subject.name, schema: SubjectSchema },
       { name: Group.name, schema: GroupSchema }
     ]),
+    AuthModule, // Importar AuthModule
   ],
   providers: [GradesService],
   controllers: [GradesController],

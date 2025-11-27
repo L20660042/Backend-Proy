@@ -4,6 +4,7 @@ import { SubjectsService } from './subjects.service';
 import { SubjectsController } from './subjects.controller';
 import { Subject, SubjectSchema } from './subject.schema';
 import { User, UserSchema } from '../users/user.schema';
+import { AuthModule } from '../auth/auth.module';
 
 @Module({
   imports: [
@@ -11,6 +12,7 @@ import { User, UserSchema } from '../users/user.schema';
       { name: Subject.name, schema: SubjectSchema },
       { name: User.name, schema: UserSchema }
     ]),
+    AuthModule, 
   ],
   providers: [SubjectsService],
   controllers: [SubjectsController],
