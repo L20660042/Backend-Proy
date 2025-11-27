@@ -28,7 +28,7 @@ export class User extends Document {
       'estudiante'
     ] 
   })
-  userType: string;
+  user_type: string;
 
   @Prop({ type: Types.ObjectId, ref: 'Institution' })
   institution?: Types.ObjectId;
