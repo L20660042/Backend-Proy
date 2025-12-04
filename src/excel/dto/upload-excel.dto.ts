@@ -1,7 +1,7 @@
 import { IsNotEmpty } from 'class-validator';
-import type { Express } from 'express';
+import type { Multer } from 'multer';
 
 export class UploadExcelDto {
   @IsNotEmpty()
-  file: Express.Multer.File;
+  file: Multer.File;
 }

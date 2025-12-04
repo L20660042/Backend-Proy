@@ -12,6 +12,7 @@ import { UserDocument } from '../users/schemas/user.schema';
 import { CareerDocument } from '../careers/schemas/career.schema';
 import { SubjectDocument } from '../subjects/schemas/subject.schema';
 import { GroupDocument } from '../groups/schemas/group.schema';
+import { ObjectId } from 'mongoose';
 
 @Injectable()
 export class ExcelService {
@@ -122,8 +123,9 @@ export class ExcelService {
 
       // Vincular estudiantes si se proporciona (array de IDs separados por coma)
       if (row.students) {
+        const groupId = (group._id as ObjectId).toString();
         const studentIds = row.students.toString().split(',').map((id) => id.trim());
-        await this.groupsService.addStudents(group._id.toString(), studentIds);
+        await this.groupsService.addStudents(groupId, studentIds);
       }
 
       created.push(group);
