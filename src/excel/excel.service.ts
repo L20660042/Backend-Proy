@@ -123,7 +123,7 @@ export class ExcelService {
       // Vincular estudiantes si se proporciona (array de IDs separados por coma)
       if (row.students) {
         const studentIds = row.students.toString().split(',').map((id) => id.trim());
-        await this.groupsService.addStudents((group as { _id: any })._id.toString(), studentIds);
+        await this.groupsService.addStudents(group._id.toString(), studentIds);
       }
 
       created.push(group);

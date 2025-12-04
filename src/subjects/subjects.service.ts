@@ -2,8 +2,9 @@ import { Injectable, NotFoundException, BadRequestException } from '@nestjs/comm
 import { InjectModel } from '@nestjs/mongoose';
 import { Model } from 'mongoose';
 import { Subject, SubjectDocument } from './schemas/subject.schema';
-import { UpdateSubjectDto } from './dto/update-subject.dto';
 import { CreateSubjectDto } from './dto/create-subject.dto';
+import { UpdateSubjectDto } from './dto/update-subject.dto';
+
 @Injectable()
 export class SubjectsService {
   constructor(@InjectModel(Subject.name) private subjectModel: Model<SubjectDocument>) {}
