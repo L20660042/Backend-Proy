@@ -1,7 +1,7 @@
 import { Controller, Get, Post, Patch, Param, Body, Delete, UseGuards } from '@nestjs/common';
 import { GroupsService } from './groups.service';
-import { CreateGroupDto } from './dto/create-group.dto';
 import { UpdateGroupDto } from './dto/update-group.dto';
+import { CreateGroupDto } from './dto/create-group.dto';
 import { JwtGuard } from '../auth/jwt.guard';
 import { RolesGuard } from '../auth/roles.guard';
 import { Roles } from '../auth/roles.decorator';
