@@ -1,35 +1,24 @@
 import { NestFactory } from '@nestjs/core';
-import { ValidationPipe } from '@nestjs/common';
 import { AppModule } from './app.module';
+import { LoggingInterceptor } from './interceptors/logging.interceptor';
+import { TransformInterceptor } from './interceptors/transform.interceptor';
+import { ErrorsInterceptor } from './interceptors/errors.interceptor';
+import { ValidationPipe } from '@nestjs/common';
 
 async function bootstrap() {
   const app = await NestFactory.create(AppModule);
 
-  // Habilitar CORS
-  app.enableCors({
-    origin: [
-      'http://localhost:5173',
-      'https://l20660042.github.io'
-    ],
-    methods: 'GET,POST,PUT,DELETE,PATCH',
-    allowedHeaders: 'Content-Type, Authorization, X-Requested-With',
-    credentials: true,
-  });
+  // Global pipes
+  app.useGlobalPipes(new ValidationPipe({ whitelist: true, forbidNonWhitelisted: true }));
 
-  // Global validation pipe
-  app.useGlobalPipes(new ValidationPipe({
-    whitelist: true,
-    forbidNonWhitelisted: true,
-    transform: true,
-  }));
+  // Global interceptors
+  app.useGlobalInterceptors(
+    new LoggingInterceptor(),
+    new TransformInterceptor(),
+    new ErrorsInterceptor(),
+  );
 
-  // Global prefix
-  app.setGlobalPrefix('api');
-
-  const port = process.env.PORT || 3000;
-  await app.listen(port);
-  
-  console.log(`🚀 Application is running on: http://localhost:${port}/api`);
-  console.log(`📊 Environment: ${process.env.NODE_ENV || 'development'}`);
+  await app.listen(3000);
+  console.log(`Server running on http://localhost:3000`);
 }
 bootstrap();

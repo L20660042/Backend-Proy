@@ -1,59 +1,104 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, NotFoundException, BadRequestException } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
 import { Model, Types } from 'mongoose';
-import { JwtService } from '@nestjs/jwt'; // Importar JwtService
-import { User } from './user.schema';
-import { CreateUserDto } from './DTO/create-user.dto';
 import * as bcrypt from 'bcryptjs';
+
+import { User, UserDocument } from './schemas/user.schema';
+import { CreateUserDto } from './dto/create-user.dto';
+import { UpdateUserDto } from './dto/update-user.dto';
 
 @Injectable()
 export class UsersService {
   constructor(
-    @InjectModel(User.name) private userModel: Model<User>,
-    private jwtService: JwtService, // Inyectar JwtService
+    @InjectModel(User.name) private readonly userModel: Model<UserDocument>,
   ) {}
 
-  // Método para crear un nuevo usuario
-  async create(createUserDto: CreateUserDto): Promise<User> {
-    const salt = await bcrypt.genSalt(10);
-    const hashedPassword = await bcrypt.hash(createUserDto.password, salt);
+  // ======================================================
+  // Crear usuario
+  // ======================================================
+  async create(dto: CreateUserDto): Promise<UserDocument> {
+    const exists = await this.userModel.findOne({ email: dto.email.toLowerCase() });
+    if (exists) throw new BadRequestException('El usuario ya existe');
 
-    const createdUser = new this.userModel({
-      ...createUserDto,
-      password: hashedPassword,
+    const hashed = await bcrypt.hash(dto.password, 10);
+
+    const user = new this.userModel({
+      ...dto,
+      email: dto.email.toLowerCase(),
+      password: hashed,
     });
 
-    return createdUser.save();
+    return user.save();
   }
 
-  // Método para validar las credenciales y generar un JWT 
-  async validateUserPassword(email: string, password: string): Promise<{ user: User; token: string }> {
-    console.log('Buscando usuario con email:', email);
-    const user = await this.userModel.findOne({ email });
-    
-    if (!user) {
-      console.log('Usuario no encontrado');
-      throw new Error('Usuario no encontrado');
+  // ======================================================
+  // Obtener todos con filtros + RLS
+  // ======================================================
+  async findAll(currentUser): Promise<UserDocument[]> {
+    const filter: any = {};
+
+    if (currentUser.role !== 'SUPERADMIN' && currentUser.role !== 'ADMIN') {
+      if (currentUser.career) filter.career = currentUser.career;
     }
 
-    console.log('Usuario encontrado, verificando contraseña');
-    const isMatch = await bcrypt.compare(password, user.password);
-    if (!isMatch) {
-      console.log('Contraseña incorrecta');
-      throw new Error('Contraseña incorrecta');
-    }
-
-    // Generar el token JWT
-    const token = this.jwtService.sign({ 
-      userId: (user._id as Types.ObjectId).toString(), 
-      userType: user.user_type 
-    });
-
-    console.log('Login exitoso, token generado');
-    return { user, token };
+    return this.userModel
+      .find(filter)
+      .populate('career subjects groups')
+      .sort({ createdAt: -1 })
+      .exec();
   }
-  
-  async getProfile(userId: string): Promise<User> {
-    return this.userModel.findById(userId).select('-password');  // Excluir la contraseña
+
+  // ======================================================
+  // Búsqueda por ID
+  // ======================================================
+  async findOne(id: string): Promise<UserDocument> {
+    const user = await this.userModel
+      .findById(id)
+      .populate('career subjects groups')
+      .exec();
+
+    if (!user) throw new NotFoundException('Usuario no encontrado');
+
+    return user;
+  }
+
+  // ======================================================
+  // Búsqueda por Email (ExcelService, Auth)
+  // ======================================================
+  async findByEmail(email: string): Promise<UserDocument | null> {
+    return this.userModel.findOne({ email: email.toLowerCase() }).exec();
+  }
+
+  // ======================================================
+  // Actualizar usuario
+  // ======================================================
+  async update(id: string, dto: UpdateUserDto): Promise<UserDocument> {
+    const user = await this.userModel.findById(id);
+    if (!user) throw new NotFoundException('Usuario no encontrado');
+
+    if (dto.password) {
+      dto.password = await bcrypt.hash(dto.password, 10);
+    }
+
+    Object.assign(user, dto);
+    return user.save();
+  }
+
+  // ======================================================
+  // Activar/desactivar usuario
+  // ======================================================
+  async toggleActive(id: string): Promise<UserDocument> {
+    const user = await this.userModel.findById(id);
+    if (!user) throw new NotFoundException('Usuario no encontrado');
+
+    user.active = !user.active;
+    return user.save();
+  }
+
+  // ======================================================
+  // Eliminar usuario (soft delete si deseas)
+  // ======================================================
+  async delete(id: string) {
+    return this.userModel.findByIdAndDelete(id);
   }
 }

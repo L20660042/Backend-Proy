@@ -1,60 +1,79 @@
-import { Controller, Get, UseGuards, Request, Post, Body, HttpException, HttpStatus } from '@nestjs/common';
-import { JwtAuthGuard } from '../auth/jwt-auth.guard';
+import {
+  Controller,
+  Get,
+  Post,
+  Body,
+  Patch,
+  Param,
+  Delete,
+  Req,
+  UseGuards
+} from '@nestjs/common';
+
 import { UsersService } from './users.service';
-import { CreateUserDto } from './DTO/create-user.dto';
-import { LoginDto } from './DTO/login.dto';
+import { CreateUserDto } from './dto/create-user.dto';
+import { UpdateUserDto } from './dto/update-user.dto';
+
+import { JwtGuard } from '../auth/jwt.guard';
+import { RolesGuard } from '../auth/roles.guard';
+import { Roles } from '../auth/roles.decorator';
+import { UserRole } from '../common/enums';
+
 
 @Controller('users')
+@UseGuards(JwtGuard, RolesGuard)
 export class UsersController {
   constructor(private readonly usersService: UsersService) {}
 
-  // Endpoint para registro de usuarios
-  @Post('register')
-  async register(@Body() createUserDto: CreateUserDto) {
-    try {
-      return await this.usersService.create(createUserDto);
-    } catch (error) {
-      throw new HttpException(
-        error.message || 'Error en el registro',
-        HttpStatus.BAD_REQUEST
-      );
-    }
+  // ======================================================
+  // Crear usuario (solo admin / superadmin)
+  // ======================================================
+  @Post()
+  @Roles(UserRole.ADMIN, UserRole.SUPERADMIN)
+  create(@Body() dto: CreateUserDto) {
+    return this.usersService.create(dto);
   }
- @Get('profile')
-  @UseGuards(JwtAuthGuard)  // Aseguramos que solo los usuarios autenticados puedan acceder
-  async getProfile(@Request() req) {
-    return this.usersService.getProfile(req.user.id);  // Asegúrate de que `req.user.id` contiene el ID del usuario autenticado
-  }
-  // Endpoint para login 
-  @Post('login')
-  async login(@Body() loginDto: LoginDto) {
-    try {
-      console.log('Solicitud de login recibida para:', loginDto.email);
-      const { user, token } = await this.usersService.validateUserPassword(
-        loginDto.email, 
-        loginDto.password
-      );
 
-      return {
-        success: true,
-        token,
-        user: {
-          id: user._id,
-          firstName: user.firstName,
-          lastName: user.lastName,
-          email: user.email,
-          userType: user.user_type,
-        },
-      };
-    } catch (error) {
-      console.error('Error en login:', error.message);
-      throw new HttpException(
-        { 
-          success: false,
-          error: error.message 
-        },
-        HttpStatus.UNAUTHORIZED
-      );
-    }
+  // ======================================================
+  // Obtener todos (RLS aplicado en servicio)
+  // ======================================================
+  @Get()
+  findAll(@Req() req) {
+    return this.usersService.findAll(req.user);
+  }
+
+  // ======================================================
+  // Obtener por ID
+  // ======================================================
+  @Get(':id')
+  findOne(@Param('id') id: string) {
+    return this.usersService.findOne(id);
+  }
+
+  // ======================================================
+  // Actualizar usuario
+  // ======================================================
+  @Patch(':id')
+  @Roles(UserRole.ADMIN, UserRole.SUPERADMIN)
+  update(@Param('id') id: string, @Body() dto: UpdateUserDto) {
+    return this.usersService.update(id, dto);
+  }
+
+  // ======================================================
+  // Activar/Desactivar usuario
+  // ======================================================
+  @Patch(':id/toggle')
+  @Roles(UserRole.ADMIN, UserRole.SUPERADMIN)
+  toggleActive(@Param('id') id: string) {
+    return this.usersService.toggleActive(id);
+  }
+
+  // ======================================================
+  // Eliminar usuario
+  // ======================================================
+  @Delete(':id')
+  @Roles(UserRole.ADMIN, UserRole.SUPERADMIN)
+  remove(@Param('id') id: string) {
+    return this.usersService.delete(id);
   }
 }
