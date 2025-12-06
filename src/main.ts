@@ -8,10 +8,17 @@ import { ValidationPipe } from '@nestjs/common';
 async function bootstrap() {
   const app = await NestFactory.create(AppModule);
 
-  // Global pipes
+  
+  app.enableCors({
+    origin: '*', 
+    methods: 'GET,POST,PUT,DELETE',
+    allowedHeaders: 'Content-Type, Authorization', 
+  });
+
+  
   app.useGlobalPipes(new ValidationPipe({ whitelist: true, forbidNonWhitelisted: true }));
 
-  // Global interceptors
+  
   app.useGlobalInterceptors(
     new LoggingInterceptor(),
     new TransformInterceptor(),
@@ -21,4 +28,5 @@ async function bootstrap() {
   await app.listen(3000);
   console.log(`Server running on http://localhost:3000`);
 }
+
 bootstrap();
