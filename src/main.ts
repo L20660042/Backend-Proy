@@ -1,15 +1,17 @@
+[file name]: main.ts
+[file content begin]
 import { NestFactory } from '@nestjs/core';
 import { AppModule } from './app.module';
 import { LoggingInterceptor } from './interceptors/logging.interceptor';
 import { TransformInterceptor } from './interceptors/transform.interceptor';
 import { ErrorsInterceptor } from './interceptors/errors.interceptor';
 import { ValidationPipe } from '@nestjs/common';
-import { CorsInterceptor } from './interceptors/cors.interceptor';
+// REMOVER: import { CorsInterceptor } from './interceptors/cors.interceptor';
 
 async function bootstrap() {
   const app = await NestFactory.create(AppModule);
 
-  // Configuración CORS - SOLO ESTA CONFIGURACIÓN
+  // Configuración CORS CORREGIDA
   const allowedOrigins = [
     'http://localhost:5173',
     'https://l20660042.github.io',
@@ -40,7 +42,7 @@ async function bootstrap() {
 
   app.useGlobalInterceptors(
     new LoggingInterceptor(),
-    new CorsInterceptor(),
+    // REMOVER: new CorsInterceptor(),  // <--- ESTA LÍNEA CAUSA EL PROBLEMA
     new TransformInterceptor(),
     new ErrorsInterceptor(),
   );
@@ -50,3 +52,4 @@ async function bootstrap() {
 }
 
 bootstrap();
+[file content end]
