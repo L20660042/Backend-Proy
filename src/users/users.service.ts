@@ -84,8 +84,8 @@ export class UsersService {
       updateData.password = await bcrypt.hash(updateData.password, 10);
     } else {
       // Si no se proporciona contraseña, mantener la existente
-      // Eliminamos la propiedad para que no sobrescriba
-      delete updateData.password;
+      // IMPORTANTE: No eliminamos la propiedad, la establecemos como la existente
+      updateData.password = user.password;
     }
 
     // Convertir email a minúsculas si se proporciona

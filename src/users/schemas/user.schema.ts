@@ -15,8 +15,8 @@ export class User {
   @Prop()
   phone?: string;
 
-  @Prop() // <-- QUITADO: required: true
-  password?: string; // <-- HECHO OPCIONAL
+  @Prop({ required: true, default: '' }) // <-- MANTENIDO COMO REQUIRED CON VALOR POR DEFECTO
+  password: string;
 
   @Prop({
     enum: UserRole,

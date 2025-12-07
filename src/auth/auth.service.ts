@@ -1,12 +1,10 @@
-// src/auth/auth.service.ts
-import { Injectable, UnauthorizedException, ConflictException } from '@nestjs/common';
+import { Injectable, UnauthorizedException, ConflictException, BadRequestException } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import { UsersService } from 'src/users/users.service';
 import * as bcrypt from 'bcryptjs';
 import { LoginDto, RegisterDto } from './auth.dto';
 import { CreateUserDto } from 'src/users/dto/create-user.dto';
 import { UserRole } from '../common/enums';
-
 
 @Injectable()
 export class AuthService {
@@ -47,6 +45,12 @@ export class AuthService {
 
     if (!user) throw new UnauthorizedException('Credenciales inválidas');
 
+    // Verificar que el usuario tenga contraseña no vacía
+    if (!user.password || user.password.trim() === '') {
+      throw new UnauthorizedException('Usuario no tiene contraseña configurada');
+    }
+
+    // Comparar contraseñas - ahora password siempre es string (gracias al schema)
     const match = await bcrypt.compare(dto.password, user.password);
 
     if (!match) throw new UnauthorizedException('Credenciales inválidas');
