@@ -7,7 +7,6 @@ import { RolesGuard } from '../auth/roles.guard';
 import { Roles } from '../auth/roles.decorator';
 import { UserRole } from '../common/enums';
 
-
 @Controller('careers')
 @UseGuards(JwtGuard, RolesGuard)
 export class CareersController {
@@ -29,11 +28,15 @@ export class CareersController {
     return this.careersService.findOne(id);
   }
 
-@Patch(':id')
-@Roles(UserRole.ADMIN, UserRole.SUPERADMIN)
-async update(@Param('id') id: string, @Body() dto: UpdateCareerDto) {
-  return this.careersService.update(id, dto);
-}
+  @Patch(':id')
+  @Roles(UserRole.ADMIN, UserRole.SUPERADMIN)
+  async update(@Param('id') id: string, @Body() dto: UpdateCareerDto) {
+    // Si viene status del frontend, convertirlo a active
+    if ((dto as any).status) {
+      dto.active = (dto as any).status === 'active';
+    }
+    return this.careersService.update(id, dto);
+  }
 
   @Patch(':id/toggle')
   @Roles(UserRole.ADMIN, UserRole.SUPERADMIN)

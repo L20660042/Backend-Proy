@@ -61,9 +61,9 @@ export class CareersService {
     if (!career) throw new NotFoundException('Carrera no encontrada');
 
     // Convertir status a active si viene del frontend
-    if ((dto as any).status) {
-      (dto as any).active = (dto as any).status === 'active';
-      delete (dto as any).status;
+    // Nota: Esto ya se hace en el controlador, pero por si acaso
+    if (dto.status) {
+      dto.active = dto.status === 'active';
     }
 
     Object.assign(career, dto);
