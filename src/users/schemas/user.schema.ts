@@ -1,6 +1,6 @@
 import { Prop, Schema, SchemaFactory } from '@nestjs/mongoose';
 import { Document, Types } from 'mongoose';
-import { UserRole } from '../../common/enums'; // ✅ Importamos el enum desde common/enums
+import { UserRole } from '../../common/enums';
 
 export type UserDocument = User & Document;
 
@@ -15,12 +15,12 @@ export class User {
   @Prop()
   phone?: string;
 
-  @Prop({ required: true })
-  password: string;
+  @Prop() // <-- QUITADO: required: true
+  password?: string; // <-- HECHO OPCIONAL
 
   @Prop({
     enum: UserRole,
-    default: UserRole.ESTUDIANTE, // Valor por defecto
+    default: UserRole.ESTUDIANTE,
   })
   role: UserRole;
 
@@ -38,6 +38,16 @@ export class User {
 
   @Prop({ type: Object })
   meta?: any;
+
+  // Campos adicionales para frontend
+  @Prop()
+  firstName?: string;
+
+  @Prop()
+  lastName?: string;
+
+  @Prop()
+  institutionId?: string;
 }
 
 export const UserSchema = SchemaFactory.createForClass(User);

@@ -70,17 +70,36 @@ export class UsersService {
   }
 
   // ======================================================
-  // Actualizar usuario
+  // Actualizar usuario - VERSIÓN MEJORADA
   // ======================================================
   async update(id: string, dto: UpdateUserDto): Promise<UserDocument> {
     const user = await this.userModel.findById(id);
     if (!user) throw new NotFoundException('Usuario no encontrado');
 
-    if (dto.password) {
-      dto.password = await bcrypt.hash(dto.password, 10);
+    // Clonar DTO para no modificar el original
+    const updateData = { ...dto };
+
+    // Solo encriptar la contraseña si se proporciona y no está vacía
+    if (updateData.password && updateData.password.trim() !== '') {
+      updateData.password = await bcrypt.hash(updateData.password, 10);
+    } else {
+      // Si no se proporciona contraseña, mantener la existente
+      // Eliminamos la propiedad para que no sobrescriba
+      delete updateData.password;
     }
 
-    Object.assign(user, dto);
+    // Convertir email a minúsculas si se proporciona
+    if (updateData.email) {
+      updateData.email = updateData.email.toLowerCase();
+    }
+
+    // Actualizar solo los campos proporcionados (no undefined)
+    Object.keys(updateData).forEach(key => {
+      if (updateData[key] !== undefined) {
+        user[key] = updateData[key];
+      }
+    });
+
     return user.save();
   }
 
