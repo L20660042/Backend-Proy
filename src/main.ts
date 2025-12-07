@@ -1,5 +1,3 @@
-[file name]: main.ts
-[file content begin]
 import { NestFactory } from '@nestjs/core';
 import { AppModule } from './app.module';
 import { LoggingInterceptor } from './interceptors/logging.interceptor';
@@ -52,4 +50,3 @@ async function bootstrap() {
 }
 
 bootstrap();
-[file content end]
