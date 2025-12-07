@@ -29,11 +29,11 @@ export class CareersController {
     return this.careersService.findOne(id);
   }
 
-  @Patch(':id')
-  @Roles(UserRole.ADMIN, UserRole.SUPERADMIN)
-  update(@Param('id') id: string, @Body() dto: UpdateCareerDto) {
-    return this.careersService.update(id, dto);
-  }
+@Patch(':id')
+@Roles(UserRole.ADMIN, UserRole.SUPERADMIN)
+async update(@Param('id') id: string, @Body() dto: UpdateCareerDto) {
+  return this.careersService.update(id, dto);
+}
 
   @Patch(':id/toggle')
   @Roles(UserRole.ADMIN, UserRole.SUPERADMIN)

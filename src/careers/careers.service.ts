@@ -11,41 +11,101 @@ export class CareersService {
     @InjectModel(Career.name) private careerModel: Model<CareerDocument>,
   ) {}
 
-  async create(dto: CreateCareerDto): Promise<CareerDocument> {
-    const exists = await this.careerModel.findOne({ $or: [{ name: dto.name }, { code: dto.code }] });
+  async create(dto: CreateCareerDto): Promise<any> {
+    const exists = await this.careerModel.findOne({ 
+      $or: [{ name: dto.name }, { code: dto.code }] 
+    });
     if (exists) throw new BadRequestException('La carrera ya existe');
 
     const career = new this.careerModel(dto);
-    return career.save();
+    await career.save();
+    
+    return {
+      success: true,
+      data: career,
+      message: 'Carrera creada exitosamente'
+    };
   }
 
-  async findAll(): Promise<CareerDocument[]> {
-    return this.careerModel.find().sort({ name: 1 }).exec();
+  async findAll(): Promise<any> {
+    const careers = await this.careerModel.find().sort({ name: 1 }).exec();
+    
+    // Mapear active a status para el frontend
+    const mappedCareers = careers.map(career => ({
+      ...career.toObject(),
+      status: career.active ? 'active' : 'inactive'
+    }));
+    
+    return {
+      success: true,
+      data: mappedCareers,
+      message: 'Carreras obtenidas exitosamente'
+    };
   }
 
-  async findOne(id: string): Promise<CareerDocument> {
+  async findOne(id: string): Promise<any> {
     const career = await this.careerModel.findById(id);
     if (!career) throw new NotFoundException('Carrera no encontrada');
-    return career;
+    
+    return {
+      success: true,
+      data: {
+        ...career.toObject(),
+        status: career.active ? 'active' : 'inactive'
+      }
+    };
   }
 
-  async update(id: string, dto: UpdateCareerDto): Promise<CareerDocument> {
+  async update(id: string, dto: UpdateCareerDto): Promise<any> {
     const career = await this.careerModel.findById(id);
     if (!career) throw new NotFoundException('Carrera no encontrada');
+
+    // Convertir status a active si viene del frontend
+    if ((dto as any).status) {
+      (dto as any).active = (dto as any).status === 'active';
+      delete (dto as any).status;
+    }
 
     Object.assign(career, dto);
-    return career.save();
+    await career.save();
+    
+    return {
+      success: true,
+      data: {
+        ...career.toObject(),
+        status: career.active ? 'active' : 'inactive'
+      },
+      message: 'Carrera actualizada exitosamente'
+    };
   }
 
-  async toggleActive(id: string): Promise<CareerDocument> {
+  async toggleActive(id: string): Promise<any> {
     const career = await this.careerModel.findById(id);
     if (!career) throw new NotFoundException('Carrera no encontrada');
 
     career.active = !career.active;
-    return career.save();
+    await career.save();
+    
+    return {
+      success: true,
+      data: {
+        ...career.toObject(),
+        status: career.active ? 'active' : 'inactive'
+      },
+      message: `Carrera ${career.active ? 'activada' : 'desactivada'} exitosamente`
+    };
   }
 
   async delete(id: string): Promise<any> {
-    return this.careerModel.findByIdAndDelete(id);
+    const result = await this.careerModel.findByIdAndDelete(id);
+    
+    if (!result) {
+      throw new NotFoundException('Carrera no encontrada');
+    }
+    
+    return {
+      success: true,
+      message: 'Carrera eliminada exitosamente'
+    };
   }
 }

@@ -1,12 +1,17 @@
-import { IsString, IsOptional } from 'class-validator';
+import { IsString, IsOptional, IsNumber, IsBoolean } from 'class-validator';
 
 export class CreateCareerDto {
   @IsString()
   name: string;
 
   @IsString()
-  code: string; 
+  code: string;
 
   @IsOptional()
+  @IsString()
   description?: string;
+
+  @IsOptional()
+  @IsNumber()
+  duration?: number;
 }

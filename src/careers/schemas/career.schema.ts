@@ -11,11 +11,14 @@ export class Career {
   @Prop({ required: true, unique: true })
   code: string;
 
+  @Prop({ default: '' })
+  description: string;
+
+  @Prop({ default: 8 })
+  duration: number;
+
   @Prop({ default: true })
   active: boolean;
 }
 
 export const CareerSchema = SchemaFactory.createForClass(Career);
-
-CareerSchema.index({ code: 1 });
-CareerSchema.index({ name: 1 });
