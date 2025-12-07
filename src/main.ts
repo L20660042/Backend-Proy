@@ -8,17 +8,21 @@ import { ValidationPipe } from '@nestjs/common';
 async function bootstrap() {
   const app = await NestFactory.create(AppModule);
 
-  
+  // Configuración de CORS actualizada
   app.enableCors({
-    origin: '*', 
-    methods: 'GET,POST,PUT,DELETE',
-    allowedHeaders: 'Content-Type, Authorization', 
+    origin: [
+      'http://localhost:5173',
+      'https://l20660042.github.io',
+    ],
+    methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS', 'HEAD'],
+    allowedHeaders: ['Content-Type', 'Authorization', 'Accept'],
+    credentials: true,
+    preflightContinue: false,
+    optionsSuccessStatus: 204
   });
-
   
   app.useGlobalPipes(new ValidationPipe({ whitelist: true, forbidNonWhitelisted: true }));
 
-  
   app.useGlobalInterceptors(
     new LoggingInterceptor(),
     new TransformInterceptor(),
