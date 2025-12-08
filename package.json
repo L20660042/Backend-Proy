@@ -36,6 +36,7 @@
     "bcryptjs": "^3.0.2",
     "class-transformer": "^0.5.1",
     "class-validator": "^0.14.3",
+    "exceljs": "^4.4.0",
     "googleapis": "^162.0.0",
     "mongoose": "^8.19.2",
     "mongose": "^0.0.2-security",
@@ -44,6 +45,7 @@
     "passport": "^0.7.0",
     "passport-jwt": "^4.0.1",
     "passport-local": "^1.0.0",
+    "pdfkit": "^0.17.2",
     "reflect-metadata": "^0.2.2",
     "rxjs": "^7.8.1",
     "xlsx": "^0.18.5"
