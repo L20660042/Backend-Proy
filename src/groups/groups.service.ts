@@ -9,42 +9,63 @@ import { UpdateGroupDto } from './dto/update-group.dto';
 export class GroupsService {
   constructor(@InjectModel(Group.name) private groupModel: Model<GroupDocument>) {}
 
-  /** Crear grupo */
+  /** Crear grupo - CORREGIDO */
   async create(dto: CreateGroupDto): Promise<GroupDocument> {
-    const exists = await this.groupModel.findOne({ name: dto.name, subject: dto.subject });
-    if (exists) throw new BadRequestException('El grupo ya existe para esta materia');
+    // Verificar si el código ya existe
+    if (dto.code) {
+      const exists = await this.groupModel.findOne({ code: dto.code });
+      if (exists) throw new BadRequestException('El código de grupo ya existe');
+    }
+
+    // Verificar si el nombre ya existe para esta materia
+    const nameExists = await this.groupModel.findOne({ 
+      name: dto.name, 
+      subject: dto.subject 
+    });
+    if (nameExists) throw new BadRequestException('El grupo ya existe para esta materia');
 
     const group = new this.groupModel(dto);
     return group.save();
   }
 
-  /** Obtener todos los grupos */
+  /** Obtener todos los grupos - MEJORADO */
   async findAll(): Promise<GroupDocument[]> {
     return this.groupModel
       .find()
-      .populate('teacher')
-      .populate('subject')
-      .populate('students')
+      .populate('teacher', 'firstName lastName email')
+      .populate('subject', 'name code')
+      .populate('career', 'name code')
+      .populate('students', 'firstName lastName email')
       .sort({ name: 1 })
       .exec();
   }
 
-  /** Obtener un grupo por ID */
+  /** Obtener un grupo por ID - MEJORADO */
   async findOne(id: string): Promise<GroupDocument> {
     const group = await this.groupModel
       .findById(id)
-      .populate('teacher')
-      .populate('subject')
-      .populate('students');
+      .populate('teacher', 'firstName lastName email')
+      .populate('subject', 'name code')
+      .populate('career', 'name code')
+      .populate('students', 'firstName lastName email');
 
     if (!group) throw new NotFoundException('Grupo no encontrado');
     return group;
   }
 
-  /** Actualizar grupo */
+  /** Actualizar grupo - CORREGIDO */
   async update(id: string, dto: UpdateGroupDto): Promise<GroupDocument> {
     const group = await this.groupModel.findById(id);
     if (!group) throw new NotFoundException('Grupo no encontrado');
+
+    // Verificar si el código ya existe (si se está actualizando)
+    if (dto.code && dto.code !== group.code) {
+      const codeExists = await this.groupModel.findOne({ 
+        code: dto.code,
+        _id: { $ne: id }
+      });
+      if (codeExists) throw new BadRequestException('El código de grupo ya existe');
+    }
 
     Object.assign(group, dto);
     return group.save();
@@ -88,4 +109,4 @@ export class GroupsService {
     group.students = group.students.filter((id) => !studentIds.includes(id.toString()));
     return group.save();
   }
- }
+}
