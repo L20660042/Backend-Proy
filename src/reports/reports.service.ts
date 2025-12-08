@@ -14,6 +14,9 @@ import { GenerateReportDto } from './dto/generate-report.dto';
 
 @Injectable()
 export class ReportsService {
+  // Hacer reportModel público o agregar getter
+  @InjectModel(Report.name) public reportModel: Model<ReportDocument>;
+
   constructor(
     @InjectModel(Tutoria.name) private tutoriaModel: Model<TutoriaDocument>,
     @InjectModel(Capacitacion.name) private capacitacionModel: Model<CapacitacionDocument>,
@@ -21,8 +24,58 @@ export class ReportsService {
     @InjectModel(Group.name) private groupModel: Model<GroupDocument>,
     @InjectModel(Subject.name) private subjectModel: Model<SubjectDocument>,
     @InjectModel(Career.name) private careerModel: Model<CareerDocument>,
-    @InjectModel(Report.name) private reportModel: Model<ReportDocument>,
   ) {}
+
+  // ========== NUEVO: OBTENER TODOS LOS REPORTES ==========
+  async getAllReports(filter: any = {}, page: number = 1, limit: number = 50): Promise<any> {
+    try {
+      console.log('🔍 Buscando reportes con filtro:', filter);
+      
+      const query: any = {};
+      
+      // Aplicar filtros
+      if (filter.type) query.type = filter.type;
+      if (filter.status) query.status = filter.status;
+      
+      // Búsqueda por texto
+      if (filter.search) {
+        query.$or = [
+          { name: { $regex: filter.search, $options: 'i' } },
+          { description: { $regex: filter.search, $options: 'i' } }
+        ];
+      }
+      
+      const skip = (page - 1) * limit;
+      
+      const [reports, total] = await Promise.all([
+        this.reportModel.find(query)
+          .sort({ createdAt: -1 })
+          .skip(skip)
+          .limit(limit)
+          .populate('generatedBy', 'fullName email')
+          .lean(),
+        this.reportModel.countDocuments(query)
+      ]);
+      
+      console.log(`✅ Encontrados ${reports.length} reportes de ${total} totales`);
+      
+      return {
+        success: true,
+        data: reports,
+        pagination: {
+          total,
+          page,
+          limit,
+          pages: Math.ceil(total / limit),
+          hasNext: (page * limit) < total,
+          hasPrev: page > 1
+        }
+      };
+    } catch (error: any) {
+      console.error('❌ Error al obtener reportes:', error);
+      throw new BadRequestException(`Error al obtener reportes: ${error.message}`);
+    }
+  }
 
   /** Generar reportes filtrados */
   async generate(dto: GetReportsDto): Promise<any> {
@@ -53,9 +106,11 @@ export class ReportsService {
   /** Generar y guardar reporte con metadatos */
   async generateAndSaveReport(generateDto: GenerateReportDto, userId: string): Promise<any> {
     try {
+      console.log('🚀 Iniciando generación de reporte:', generateDto);
+      
       // Convertir GenerateReportDto a GetReportsDto
       const getReportsDto: GetReportsDto = {
-        type: generateDto.type as any, // Casting necesario
+        type: generateDto.type as any,
         userId: generateDto.userId,
         studentId: generateDto.studentId,
         groupId: generateDto.groupId,
@@ -67,6 +122,8 @@ export class ReportsService {
 
       // Generar el reporte
       const data = await this.generate(getReportsDto);
+      
+      console.log('📊 Datos generados, calculando estadísticas...');
       
       // Calcular estadísticas
       const stats = this.calculateStatistics(data, generateDto.type);
@@ -94,8 +151,21 @@ export class ReportsService {
         downloadCount: 0,
       };
 
+      console.log('📝 Guardando reporte en BD:', reportData);
+      
       // Guardar en base de datos
       const savedReport = await this.reportModel.create(reportData);
+      
+      console.log('✅ Reporte guardado con ID:', savedReport._id);
+
+      // Verificar que se guardó correctamente
+      const verifyReport = await this.reportModel.findById(savedReport._id);
+      console.log('🔍 Reporte verificado:', {
+        id: verifyReport?._id,
+        name: verifyReport?.name,
+        type: verifyReport?.type,
+        status: verifyReport?.status
+      });
       
       return {
         success: true,
@@ -106,6 +176,7 @@ export class ReportsService {
         }
       };
     } catch (error: any) {
+      console.error('❌ Error al generar reporte:', error);
       throw new BadRequestException(`Error al generar reporte: ${error.message}`);
     }
   }
@@ -122,6 +193,7 @@ export class ReportsService {
         .sort({ createdAt: -1 })
         .skip(skip)
         .limit(limit)
+        .populate('generatedBy', 'fullName email')
         .lean(),
       this.reportModel.countDocuments(filter)
     ]);
@@ -140,7 +212,7 @@ export class ReportsService {
     };
   }
 
-  /** Exportar reporte a diferentes formatos - VERSIÓN SIMPLIFICADA */
+  /** Exportar reporte a diferentes formatos */
   async exportReport(reportId: string, format: string = 'json', res: Response): Promise<void> {
     const report = await this.reportModel.findById(reportId);
     if (!report) {
@@ -363,7 +435,8 @@ export class ReportsService {
 
   /** Obtener un reporte por ID */
   async getReportById(reportId: string): Promise<any> {
-    const report = await this.reportModel.findById(reportId);
+    const report = await this.reportModel.findById(reportId)
+      .populate('generatedBy', 'fullName email');
     if (!report) {
       throw new NotFoundException('Reporte no encontrado');
     }
@@ -398,6 +471,9 @@ export class ReportsService {
       totalTutorias,
       recentTutorias,
       totalCapacitaciones,
+      totalReports,
+      completedReports,
+      processingReports,
     ] = await Promise.all([
       this.userModel.countDocuments(),
       this.userModel.countDocuments({ active: true }),
@@ -410,6 +486,9 @@ export class ReportsService {
         date: { $gte: new Date(Date.now() - 30 * 24 * 60 * 60 * 1000) }
       }),
       this.capacitacionModel.countDocuments(),
+      this.reportModel.countDocuments(),
+      this.reportModel.countDocuments({ status: 'completed' }),
+      this.reportModel.countDocuments({ status: 'processing' }),
     ]);
 
     return {
@@ -437,8 +516,41 @@ export class ReportsService {
         },
         capacitaciones: {
           total: totalCapacitaciones
+        },
+        reportes: {
+          total: totalReports,
+          completados: completedReports,
+          procesando: processingReports,
+          otros: totalReports - completedReports - processingReports
         }
       }
+    };
+  }
+
+  /** Método para debug - Obtener todos los reportes */
+  async debugGetAllReports(): Promise<any> {
+    const reports = await this.reportModel.find({})
+      .sort({ createdAt: -1 })
+      .populate('generatedBy', 'fullName email')
+      .lean();
+    
+    const count = await this.reportModel.countDocuments();
+    
+    return {
+      success: true,
+      message: `Hay ${count} reportes en la base de datos`,
+      count,
+      reports: reports.map(r => ({
+        id: r._id,
+        name: r.name,
+        type: r.type,
+        status: r.status,
+        format: r.format,
+        createdAt: (r as any).createdAt, // Cast para acceder a createdAt
+        generatedBy: r.generatedBy,
+        recordCount: r.recordCount,
+        downloadCount: r.downloadCount
+      }))
     };
   }
 }

@@ -48,6 +48,10 @@ export class Report {
 
   @Prop()
   errorMessage?: string;
+
+  // Timestamps automáticos
+  createdAt?: Date;
+  updatedAt?: Date;
 }
 
 export const ReportSchema = SchemaFactory.createForClass(Report);
