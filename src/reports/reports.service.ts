@@ -11,8 +11,6 @@ import { Career, CareerDocument } from '../careers/schemas/career.schema';
 import { Report, ReportDocument } from './schemas/report.schema';
 import { GetReportsDto } from './dto/get-reports.dto';
 import { GenerateReportDto } from './dto/generate-report.dto';
-import * as ExcelJS from 'exceljs';
-import * as PDFDocument from 'pdfkit';
 
 @Injectable()
 export class ReportsService {
@@ -23,7 +21,7 @@ export class ReportsService {
     @InjectModel(Group.name) private groupModel: Model<GroupDocument>,
     @InjectModel(Subject.name) private subjectModel: Model<SubjectDocument>,
     @InjectModel(Career.name) private careerModel: Model<CareerDocument>,
-    @InjectModel(Report.name) private reportModel: Model<ReportDocument>, // Nuevo modelo
+    @InjectModel(Report.name) private reportModel: Model<ReportDocument>,
   ) {}
 
   /** Generar reportes filtrados */
@@ -55,8 +53,20 @@ export class ReportsService {
   /** Generar y guardar reporte con metadatos */
   async generateAndSaveReport(generateDto: GenerateReportDto, userId: string): Promise<any> {
     try {
+      // Convertir GenerateReportDto a GetReportsDto
+      const getReportsDto: GetReportsDto = {
+        type: generateDto.type as any, // Casting necesario
+        userId: generateDto.userId,
+        studentId: generateDto.studentId,
+        groupId: generateDto.groupId,
+        subjectId: generateDto.subjectId,
+        careerId: generateDto.careerId,
+        startDate: generateDto.startDate,
+        endDate: generateDto.endDate,
+      };
+
       // Generar el reporte
-      const data = await this.generate(generateDto);
+      const data = await this.generate(getReportsDto);
       
       // Calcular estadísticas
       const stats = this.calculateStatistics(data, generateDto.type);
@@ -73,13 +83,13 @@ export class ReportsService {
           groupId: generateDto.groupId,
           subjectId: generateDto.subjectId,
           careerId: generateDto.careerId,
-          startDate: generateDto.startDate,
-          endDate: generateDto.endDate,
+          startDate: generateDto.startDate ? new Date(generateDto.startDate) : undefined,
+          endDate: generateDto.endDate ? new Date(generateDto.endDate) : undefined,
         },
         dataSize: JSON.stringify(data).length,
         recordCount: Array.isArray(data) ? data.length : this.countTotalRecords(data),
         stats: stats,
-        generatedBy: userId,
+        generatedBy: new Types.ObjectId(userId),
         status: 'completed',
         downloadCount: 0,
       };
@@ -92,10 +102,10 @@ export class ReportsService {
         message: 'Reporte generado y guardado exitosamente',
         data: {
           report: savedReport,
-          preview: Array.isArray(data) ? data.slice(0, 10) : data // Primeros 10 registros para preview
+          preview: Array.isArray(data) ? data.slice(0, 10) : data
         }
       };
-    } catch (error) {
+    } catch (error: any) {
       throw new BadRequestException(`Error al generar reporte: ${error.message}`);
     }
   }
@@ -103,7 +113,7 @@ export class ReportsService {
   /** Obtener historial de reportes */
   async getReportHistory(userId?: string, limit: number = 50, page: number = 1): Promise<any> {
     const filter: any = {};
-    if (userId) filter.generatedBy = userId;
+    if (userId) filter.generatedBy = new Types.ObjectId(userId);
 
     const skip = (page - 1) * limit;
     
@@ -130,7 +140,7 @@ export class ReportsService {
     };
   }
 
-  /** Exportar reporte a diferentes formatos */
+  /** Exportar reporte a diferentes formatos - VERSIÓN SIMPLIFICADA */
   async exportReport(reportId: string, format: string = 'json', res: Response): Promise<void> {
     const report = await this.reportModel.findById(reportId);
     if (!report) {
@@ -142,26 +152,26 @@ export class ReportsService {
     await report.save();
 
     // Generar datos del reporte
-    const data = await this.generate({
-      type: report.type,
-      ...report.filters
-    });
+    const getReportsDto: GetReportsDto = {
+      type: report.type as any,
+      userId: report.filters?.userId,
+      studentId: report.filters?.studentId,
+      groupId: report.filters?.groupId,
+      subjectId: report.filters?.subjectId,
+      careerId: report.filters?.careerId,
+      startDate: report.filters?.startDate?.toISOString(),
+      endDate: report.filters?.endDate?.toISOString(),
+    };
+    
+    const data = await this.generate(getReportsDto);
 
-    switch (format.toLowerCase()) {
-      case 'json':
-        await this.exportToJSON(data, report, res);
-        break;
-      case 'csv':
-        await this.exportToCSV(data, report, res);
-        break;
-      case 'excel':
-        await this.exportToExcel(data, report, res);
-        break;
-      case 'pdf':
-        await this.exportToPDF(data, report, res);
-        break;
-      default:
-        throw new BadRequestException('Formato no soportado. Usa: json, csv, excel o pdf');
+    // Solo soportamos JSON y CSV por ahora
+    if (format.toLowerCase() === 'json') {
+      await this.exportToJSON(data, report, res);
+    } else if (format.toLowerCase() === 'csv') {
+      await this.exportToCSV(data, report, res);
+    } else {
+      throw new BadRequestException('Formato no soportado. Usa: json o csv');
     }
   }
 
@@ -190,133 +200,26 @@ export class ReportsService {
   private async exportToCSV(data: any, report: any, res: Response): Promise<void> {
     let csvContent = '';
     
-    // Encabezados
     if (Array.isArray(data) && data.length > 0) {
       const headers = Object.keys(data[0]).join(',');
       csvContent += headers + '\n';
       
-      // Filas
       data.forEach(item => {
         const row = Object.values(item).map(value => {
-          if (typeof value === 'object') {
-            return JSON.stringify(value);
+          if (typeof value === 'object' && value !== null) {
+            return `"${JSON.stringify(value).replace(/"/g, '""')}"`;
           }
           return `"${String(value).replace(/"/g, '""')}"`;
         }).join(',');
         csvContent += row + '\n';
       });
     } else if (typeof data === 'object') {
-      // Para reportes no tabulares
       csvContent = this.objectToCSV(data);
     }
 
     res.setHeader('Content-Type', 'text/csv');
     res.setHeader('Content-Disposition', `attachment; filename="${report.name.replace(/\s+/g, '_')}.csv"`);
     res.send(csvContent);
-  }
-
-  /** Exportar a Excel */
-  private async exportToExcel(data: any, report: any, res: Response): Promise<void> {
-    const workbook = new ExcelJS.Workbook();
-    const worksheet = workbook.addWorksheet('Reporte');
-
-    // Encabezados
-    if (Array.isArray(data) && data.length > 0) {
-      const headers = Object.keys(data[0]);
-      worksheet.addRow(headers);
-
-      // Estilo para encabezados
-      worksheet.getRow(1).font = { bold: true };
-      worksheet.getRow(1).fill = {
-        type: 'pattern',
-        pattern: 'solid',
-        fgColor: { argb: 'FFE0E0E0' }
-      };
-
-      // Datos
-      data.forEach(item => {
-        const row = headers.map(header => {
-          const value = item[header];
-          if (value instanceof Date) {
-            return value;
-          } else if (typeof value === 'object') {
-            return JSON.stringify(value);
-          }
-          return value;
-        });
-        worksheet.addRow(row);
-      });
-
-      // Auto ajustar columnas
-      worksheet.columns.forEach(column => {
-        let maxLength = 0;
-        column.eachCell({ includeEmpty: true }, cell => {
-          const columnLength = cell.value ? cell.value.toString().length : 10;
-          if (columnLength > maxLength) {
-            maxLength = columnLength;
-          }
-        });
-        column.width = Math.min(maxLength + 2, 50);
-      });
-    }
-
-    // Hoja de metadatos
-    const metaSheet = workbook.addWorksheet('Metadatos');
-    metaSheet.addRow(['Nombre', report.name]);
-    metaSheet.addRow(['Descripción', report.description || 'N/A']);
-    metaSheet.addRow(['Tipo', report.type]);
-    metaSheet.addRow(['Fecha de generación', report.createdAt]);
-    metaSheet.addRow(['Total registros', report.recordCount]);
-
-    res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
-    res.setHeader('Content-Disposition', `attachment; filename="${report.name.replace(/\s+/g, '_')}.xlsx"`);
-    
-    await workbook.xlsx.write(res);
-    res.end();
-  }
-
-  /** Exportar a PDF */
-  private async exportToPDF(data: any, report: any, res: Response): Promise<void> {
-    const doc = new PDFDocument({ margin: 50 });
-    
-    // Configurar respuesta
-    res.setHeader('Content-Type', 'application/pdf');
-    res.setHeader('Content-Disposition', `attachment; filename="${report.name.replace(/\s+/g, '_')}.pdf"`);
-    
-    doc.pipe(res);
-
-    // Encabezado
-    doc.fontSize(20).text(report.name, { align: 'center' });
-    doc.moveDown();
-    
-    if (report.description) {
-      doc.fontSize(12).text(report.description);
-      doc.moveDown();
-    }
-
-    // Metadatos
-    doc.fontSize(10).text(`Tipo: ${report.type}`);
-    doc.text(`Generado: ${new Date(report.createdAt).toLocaleDateString()}`);
-    doc.text(`Total registros: ${report.recordCount}`);
-    doc.moveDown();
-
-    // Datos
-    if (Array.isArray(data) && data.length > 0) {
-      doc.fontSize(14).text('Datos:', { underline: true });
-      doc.moveDown(0.5);
-      
-      data.slice(0, 100).forEach((item, index) => { // Limitar a 100 registros en PDF
-        doc.fontSize(10).text(`${index + 1}. ${JSON.stringify(item, null, 2)}`);
-        doc.moveDown(0.5);
-      });
-
-      if (data.length > 100) {
-        doc.moveDown();
-        doc.fontSize(10).text(`... y ${data.length - 100} registros más. Descarga el archivo completo para ver todos los datos.`);
-      }
-    }
-
-    doc.end();
   }
 
   /** Métodos auxiliares privados */
@@ -331,7 +234,6 @@ export class ReportsService {
         stats.tutoriasWithRisk = withRisk;
         stats.tutoriasWithoutRisk = data.length - withRisk;
         
-        // Por mes (si hay fechas)
         const byMonth: Record<string, number> = {};
         data.forEach((item: any) => {
           if (item.date) {
@@ -359,10 +261,15 @@ export class ReportsService {
     if (Array.isArray(data)) return data.length;
     
     if (typeof data === 'object') {
-      return Object.values(data).reduce((total: number, value: any) => {
-        if (Array.isArray(value)) return total + value.length;
-        return total + 1;
-      }, 0);
+      let total = 0;
+      Object.values(data).forEach((value: any) => {
+        if (Array.isArray(value)) {
+          total += value.length;
+        } else {
+          total += 1;
+        }
+      });
+      return total;
     }
     
     return 0;
@@ -373,7 +280,7 @@ export class ReportsService {
     
     const flattenObject = (ob: any, prefix = ''): void => {
       for (const key in ob) {
-        if (ob.hasOwnProperty(key)) {
+        if (Object.prototype.hasOwnProperty.call(ob, key)) {
           const value = ob[key];
           const newKey = prefix ? `${prefix}.${key}` : key;
           
@@ -390,7 +297,7 @@ export class ReportsService {
     return 'Clave,Valor\n' + rows.join('\n');
   }
 
-  /** Métodos de los reportes individuales (existentes) */
+  /** Métodos de los reportes individuales */
   private async getTutoriaReport(dto: GetReportsDto) {
     const filter: any = {};
     if (dto.userId) filter.tutor = new Types.ObjectId(dto.userId);
@@ -460,7 +367,10 @@ export class ReportsService {
     if (!report) {
       throw new NotFoundException('Reporte no encontrado');
     }
-    return report;
+    return {
+      success: true,
+      data: report
+    };
   }
 
   /** Eliminar un reporte */
@@ -503,28 +413,31 @@ export class ReportsService {
     ]);
 
     return {
-      usuarios: {
-        total: totalUsers,
-        activos: activeUsers,
-        inactivos: totalUsers - activeUsers
-      },
-      carreras: {
-        total: totalCareers,
-        activas: activeCareers,
-        inactivas: totalCareers - activeCareers
-      },
-      materias: {
-        total: totalSubjects
-      },
-      grupos: {
-        total: totalGroups
-      },
-      tutorias: {
-        total: totalTutorias,
-        ultimos30Dias: recentTutorias
-      },
-      capacitaciones: {
-        total: totalCapacitaciones
+      success: true,
+      data: {
+        usuarios: {
+          total: totalUsers,
+          activos: activeUsers,
+          inactivos: totalUsers - activeUsers
+        },
+        carreras: {
+          total: totalCareers,
+          activas: activeCareers,
+          inactivas: totalCareers - activeCareers
+        },
+        materias: {
+          total: totalSubjects
+        },
+        grupos: {
+          total: totalGroups
+        },
+        tutorias: {
+          total: totalTutorias,
+          ultimos30Dias: recentTutorias
+        },
+        capacitaciones: {
+          total: totalCapacitaciones
+        }
       }
     };
   }
