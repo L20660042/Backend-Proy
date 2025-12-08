@@ -15,22 +15,36 @@ export class ReportsController {
   constructor(private readonly reportsService: ReportsService) {}
 
   // ========== LISTAR TODOS LOS REPORTES (NUEVO) ==========
-  @Get('list')
-  @Roles(UserRole.ADMIN, UserRole.SUPERADMIN, UserRole.JEFE_DEPARTAMENTO)
-  async getAllReports(
-    @Query('page', new ParseIntPipe({ optional: true })) page: number = 1,
-    @Query('limit', new ParseIntPipe({ optional: true })) limit: number = 50,
-    @Query('type') type?: string,
-    @Query('status') status?: string,
-    @Query('search') search?: string,
-  ) {
-    return this.reportsService.getAllReports({
+@Get('list')
+@Roles(UserRole.ADMIN, UserRole.SUPERADMIN, UserRole.JEFE_DEPARTAMENTO)
+async getAllReports(
+  @Query('page', new ParseIntPipe({ optional: true })) page: number = 1,
+  @Query('limit', new ParseIntPipe({ optional: true })) limit: number = 100,
+  @Query('type') type?: string,
+  @Query('status') status?: string,
+  @Query('search') search?: string,
+) {
+  try {
+    console.log('📊 Solicitando reportes con:', { page, limit, type, status, search });
+    
+    const result = await this.reportsService.getAllReports({
       type,
       status,
       search
     }, page, limit);
+    
+    console.log(`✅ Reportes encontrados: ${result.data?.length || 0}`);
+    return result;
+    
+  } catch (error: any) {
+    console.error('❌ Error en /reports/list:', error);
+    return {
+      success: false,
+      message: error.message,
+      data: []
+    };
   }
-
+}
   // ========== GENERAR REPORTE CON FILTROS ==========
   @Get()
   @Roles(UserRole.ADMIN, UserRole.SUPERADMIN, UserRole.JEFE_DEPARTAMENTO)
