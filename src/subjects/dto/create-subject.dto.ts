@@ -7,7 +7,7 @@ export class CreateSubjectDto {
   @IsString()
   code: string;
 
-  @IsMongoId()
+  @IsString() // CAMBIADO: de @IsMongoId() a @IsString() para mayor flexibilidad
   career: string;
 
   @IsOptional()

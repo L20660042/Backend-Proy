@@ -31,6 +31,10 @@ export class SubjectsController {
   @Patch(':id')
   @Roles(UserRole.ADMIN, UserRole.SUPERADMIN)
   async update(@Param('id') id: string, @Body() dto: UpdateSubjectDto) {
+    // Si viene status del frontend, convertirlo a active
+    if ((dto as any).status) {
+      dto.active = (dto as any).status === 'active';
+    }
     return this.subjectsService.update(id, dto);
   }
 

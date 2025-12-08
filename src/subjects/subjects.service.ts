@@ -12,47 +12,47 @@ export class SubjectsService {
   ) {}
 
   async create(dto: CreateSubjectDto): Promise<any> {
-    // Verificar si el código ya existe
-    const exists = await this.subjectModel.findOne({ code: dto.code });
-    if (exists) {
-      throw new BadRequestException('El código de materia ya existe');
-    }
-
-    // Verificar que la carrera exista
-    if (!Types.ObjectId.isValid(dto.career)) {
-      throw new BadRequestException('ID de carrera inválido');
-    }
-
-    const subject = new this.subjectModel({
-      ...dto,
-      career: new Types.ObjectId(dto.career)
-    });
-    
-    const savedSubject = await subject.save();
-    
-    // Populate para obtener datos relacionados
-    const populatedSubject = await this.subjectModel
-      .findById(savedSubject._id)
-      .populate('career', 'name code')
-      .populate('teacher', 'fullName email')
-      .exec();
-
-    // Validar que populatedSubject no sea null
-    if (!populatedSubject) {
-      throw new NotFoundException('Materia no encontrada después de crear');
-    }
-
-    return {
-      success: true,
-      data: {
-        ...populatedSubject.toObject(),
-        status: populatedSubject.active ? 'active' : 'inactive',
-        careerId: dto.career,
-        careerName: (populatedSubject.career as any)?.['name'] || 'Desconocida'
-      },
-      message: 'Materia creada exitosamente'
-    };
+  // Verificar si el código ya existe
+  const exists = await this.subjectModel.findOne({ code: dto.code });
+  if (exists) {
+    throw new BadRequestException('El código de materia ya existe');
   }
+
+  // Verificar que el ID de carrera sea válido
+  if (!Types.ObjectId.isValid(dto.career)) {
+    throw new BadRequestException('ID de carrera inválido');
+  }
+
+  const subject = new this.subjectModel({
+    ...dto,
+    career: new Types.ObjectId(dto.career) // Convertir string a ObjectId
+  });
+  
+  const savedSubject = await subject.save();
+  
+  // Populate para obtener datos relacionados
+  const populatedSubject = await this.subjectModel
+    .findById(savedSubject._id)
+    .populate('career', 'name code')
+    .populate('teacher', 'fullName email')
+    .exec();
+
+  // Validar que populatedSubject no sea null
+  if (!populatedSubject) {
+    throw new NotFoundException('Materia no encontrada después de crear');
+  }
+
+  return {
+    success: true,
+    data: {
+      ...populatedSubject.toObject(),
+      status: populatedSubject.active ? 'active' : 'inactive',
+      careerId: dto.career, // Mantener el ID original como string
+      careerName: (populatedSubject.career as any)?.['name'] || 'Desconocida'
+    },
+    message: 'Materia creada exitosamente'
+  };
+}
 
   async findAll(): Promise<any> {
     const subjects = await this.subjectModel
@@ -101,49 +101,51 @@ export class SubjectsService {
   }
 
   async update(id: string, dto: UpdateSubjectDto): Promise<any> {
-    const subject = await this.subjectModel.findById(id);
-    if (!subject) {
-      throw new NotFoundException('Materia no encontrada');
-    }
-
-    // Convertir status a active si viene del frontend
-    if ((dto as any).status) {
-      (dto as any).active = (dto as any).status === 'active';
-      delete (dto as any).status;
-    }
-
-    // Convertir careerId a career si viene del frontend
-    if ((dto as any).careerId) {
-      (dto as any).career = new Types.ObjectId((dto as any).careerId);
-      delete (dto as any).careerId;
-    }
-
-    Object.assign(subject, dto);
-    await subject.save();
-
-    // Obtener datos actualizados con populate
-    const updatedSubject = await this.subjectModel
-      .findById(id)
-      .populate('career', 'name code')
-      .populate('teacher', 'fullName email')
-      .exec();
-
-    if (!updatedSubject) {
-      throw new NotFoundException('Materia no encontrada después de actualizar');
-    }
-
-    return {
-      success: true,
-      data: {
-        ...updatedSubject.toObject(),
-        status: updatedSubject.active ? 'active' : 'inactive',
-        careerId: (updatedSubject.career as any)?.['_id']?.toString(),
-        careerName: (updatedSubject.career as any)?.['name'] || 'Desconocida',
-        teacherName: (updatedSubject.teacher as any)?.['fullName'] || 'Sin asignar'
-      },
-      message: 'Materia actualizada exitosamente'
-    };
+  const subject = await this.subjectModel.findById(id);
+  if (!subject) {
+    throw new NotFoundException('Materia no encontrada');
   }
+
+  // Convertir status a active si viene del frontend
+  if (dto.status) {
+    dto.active = dto.status === 'active';
+    delete dto.status;
+  }
+
+  // Si viene career (como string), convertirlo a ObjectId
+  if (dto.career && typeof dto.career === 'string') {
+    if (!Types.ObjectId.isValid(dto.career)) {
+      throw new BadRequestException('ID de carrera inválido');
+    }
+    dto.career = new Types.ObjectId(dto.career) as any;
+  }
+
+  Object.assign(subject, dto);
+  await subject.save();
+
+  // Obtener datos actualizados con populate
+  const updatedSubject = await this.subjectModel
+    .findById(id)
+    .populate('career', 'name code')
+    .populate('teacher', 'fullName email')
+    .exec();
+
+  if (!updatedSubject) {
+    throw new NotFoundException('Materia no encontrada después de actualizar');
+  }
+
+  return {
+    success: true,
+    data: {
+      ...updatedSubject.toObject(),
+      status: updatedSubject.active ? 'active' : 'inactive',
+      careerId: (updatedSubject.career as any)?.['_id']?.toString(),
+      careerName: (updatedSubject.career as any)?.['name'] || 'Desconocida',
+      teacherName: (updatedSubject.teacher as any)?.['fullName'] || 'Sin asignar'
+    },
+    message: 'Materia actualizada exitosamente'
+  };
+}
 
   async toggleActive(id: string): Promise<any> {
     const subject = await this.subjectModel.findById(id);
