@@ -284,8 +284,8 @@ export class ExcelService {
         }
 
         // Obtener la materia para tener su carrera
-        const subject = await this.subjectsService.findOne(subjectId);
-        const careerId = subject.data?.careerId || subject.data?.career?._id;
+        const subjectResult = await this.subjectsService.findOne(subjectId);
+        const careerId = subjectResult.data?.careerId || subjectResult.data?.career?._id;
 
         const groupData: any = {
           name: row.name.toString().trim(),
@@ -309,7 +309,15 @@ export class ExcelService {
 
         // Crear el grupo
         const createdGroup = await this.groupsService.create(groupData);
-        const groupId = createdGroup._id.toString();
+        
+        // CORRECCIÓN: Usar type assertion para acceder a _id
+        const groupId = (createdGroup as any)._id?.toString() || 
+                        (createdGroup as GroupDocument)?._id?.toString();
+        
+        if (!groupId) {
+          result.errors.push(`Fila ${rowNumber}: No se pudo obtener ID del grupo creado`);
+          continue;
+        }
 
         // Asignar estudiantes si se proporcionan
         if (row.students) {
@@ -355,16 +363,16 @@ export class ExcelService {
     // 1. Verificar si es ObjectId válido
     if (Types.ObjectId.isValid(cleanId)) {
       try {
-        const career = await this.careersService.findOne(cleanId);
-        if (career?.success) return cleanId;
+        const careerResult = await this.careersService.findOne(cleanId);
+        if (careerResult?.success) return cleanId;
       } catch {}
     }
 
     // 2. Buscar por código
     try {
-      const careers = await this.careersService.findAll();
-      if (careers?.success && careers.data) {
-        const career = careers.data.find((c: any) => 
+      const careersResult = await this.careersService.findAll();
+      if (careersResult?.success && careersResult.data) {
+        const career = careersResult.data.find((c: any) => 
           c.code?.toLowerCase() === cleanId.toLowerCase() ||
           c.name?.toLowerCase() === cleanId.toLowerCase()
         );
@@ -378,9 +386,9 @@ export class ExcelService {
   /** Buscar carrera por nombre o código */
   private async findCareerByNameOrCode(name: string, code: string): Promise<any> {
     try {
-      const careers = await this.careersService.findAll();
-      if (careers?.success && careers.data) {
-        return careers.data.find((c: any) => 
+      const careersResult = await this.careersService.findAll();
+      if (careersResult?.success && careersResult.data) {
+        return careersResult.data.find((c: any) => 
           c.name?.toLowerCase() === name.toLowerCase() ||
           c.code?.toLowerCase() === code.toLowerCase()
         );
@@ -392,9 +400,9 @@ export class ExcelService {
   /** Buscar materia por código */
   private async findSubjectByCode(code: string): Promise<any> {
     try {
-      const subjects = await this.subjectsService.findAll();
-      if (subjects?.success && subjects.data) {
-        return subjects.data.find((s: any) => 
+      const subjectsResult = await this.subjectsService.findAll();
+      if (subjectsResult?.success && subjectsResult.data) {
+        return subjectsResult.data.find((s: any) => 
           s.code?.toLowerCase() === code.toLowerCase()
         );
       }
@@ -411,16 +419,16 @@ export class ExcelService {
     // 1. Verificar si es ObjectId válido
     if (Types.ObjectId.isValid(cleanId)) {
       try {
-        const subject = await this.subjectsService.findOne(cleanId);
-        if (subject?.success) return cleanId;
+        const subjectResult = await this.subjectsService.findOne(cleanId);
+        if (subjectResult?.success) return cleanId;
       } catch {}
     }
 
     // 2. Buscar por código o nombre
     try {
-      const subjects = await this.subjectsService.findAll();
-      if (subjects?.success && subjects.data) {
-        const subject = subjects.data.find((s: any) => 
+      const subjectsResult = await this.subjectsService.findAll();
+      if (subjectsResult?.success && subjectsResult.data) {
+        const subject = subjectsResult.data.find((s: any) => 
           s.code?.toLowerCase() === cleanId.toLowerCase() ||
           s.name?.toLowerCase() === cleanId.toLowerCase()
         );
@@ -448,14 +456,11 @@ export class ExcelService {
     // 2. Buscar por email
     if (cleanId.includes('@')) {
       const user = await this.usersService.findByEmail(cleanId);
-      if (user) return user._id.toString();
+      if (user) {
+        // CORRECCIÓN: Usar type assertion para acceder a _id
+        return (user as any)._id?.toString() || (user as UserDocument)?._id?.toString();
+      }
     }
-
-    // 3. Buscar por nombre completo
-    try {
-      // Nota: Esto requeriría un método de búsqueda por nombre en UsersService
-      // Por ahora, solo manejamos email e ID
-    } catch {}
 
     return null;
   }
