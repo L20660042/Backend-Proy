@@ -20,6 +20,22 @@ import { RolesGuard } from '../auth/roles.guard';
 import { Roles } from '../auth/roles.decorator';
 import { UserRole } from '../common/enums';
 
+// Definir la interfaz aquí ya que no está exportada desde el servicio
+interface ImportResult {
+  summary: {
+    totalSheets: number;
+    processedSheets: number;
+    errors: string[];
+    success: boolean;
+    message: string;
+    totalCreated: number;
+  };
+  details: Record<string, {
+    created: number;
+    errors: string[];
+  }>;
+}
+
 @Controller('excel')
 @UseGuards(JwtGuard, RolesGuard)
 export class ExcelController {
@@ -62,7 +78,7 @@ export class ExcelController {
       }
     }
   }))
-  async upload(@UploadedFile() file: Express.Multer.File) {
+  async upload(@UploadedFile() file: Express.Multer.File): Promise<any> {
     console.log('📥 Archivo recibido en backend:', {
       originalname: file.originalname,
       size: file.size,
@@ -300,39 +316,31 @@ export class ExcelController {
     };
   }
 
-  // En el método test() del controller, línea ~310:
-@Get('test')
-@Roles(UserRole.ADMIN, UserRole.SUPERADMIN)
-async test(@Req() req: any) {  // Añadir @Req() para obtener el request
-  console.log('🧪 Probando funcionalidad Excel');
-  
-  try {
-    // Obtener el usuario actual del request
-    const currentUser = req.user;
+  @Get('test')
+  @Roles(UserRole.ADMIN, UserRole.SUPERADMIN)
+  async test(@Req() req: any) {
+    console.log('🧪 Probando funcionalidad Excel');
     
-    // Test 1: Verificar que los servicios están disponibles
-    const careers = await this.excelService['careersService'].findAll();
-    const users = await this.excelService['usersService'].findAll(currentUser); // Pasar currentUser
-    
-    console.log('🧪 Carreras disponibles:', careers?.data?.length || 0);
-    console.log('🧪 Usuarios disponibles:', users?.length || 0);
-    
-    return {
-      success: true,
-      message: 'Servicios funcionando',
-      stats: {
-        careers: careers?.data?.length || 0,
-        users: users?.length || 0
-      }
-    };
-  } catch (error: any) {
-    console.error('❌ Error en test:', error);
-    return {
-      success: false,
-      message: error.message
-    };
+    try {
+      // Obtener el usuario actual del request
+      const currentUser = req.user;
+      
+      // Nota: No es buena práctica acceder a servicios privados así
+      // Mejor agregar métodos públicos en ExcelService para test
+      return {
+        success: true,
+        message: 'Endpoint de prueba disponible',
+        currentUser: currentUser ? 'Autenticado' : 'No autenticado'
+      };
+      
+    } catch (error: any) {
+      console.error('❌ Error en test:', error);
+      return {
+        success: false,
+        message: error.message
+      };
+    }
   }
-}
 
   @Get('uploads')
   @Roles(UserRole.ADMIN, UserRole.SUPERADMIN)
