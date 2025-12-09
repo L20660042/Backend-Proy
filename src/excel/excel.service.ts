@@ -254,20 +254,31 @@ export class ExcelService {
         this.logger.log(`🔄 Creando carrera: ${careerName}`);
         const createResult = await this.careersService.create(careerData);
         
-        // Manejar diferentes estructuras de respuesta
+        // ======== LOGGING DETALLADO AGREGADO AQUÍ ========
         if (createResult) {
+          console.log(`✅ RESULTADO CARRERA [Fila ${rowNumber}]:`, createResult);
+          
           if ((createResult as any).success || (createResult as any)._id) {
             result.created++;
             this.logger.log(`✅ Carrera creada: ${careerName} (${careerCode})`);
           } else {
             result.errors.push(`Fila ${rowNumber}: Error al crear carrera "${careerName}"`);
             this.logger.error(`❌ Error creando carrera:`, createResult);
+            console.log(`❌ ERROR EN FILA ${rowNumber} (CARRERAS): No se pudo crear carrera`);
+            console.log('Datos problema:', careerData);
           }
         } else {
           result.errors.push(`Fila ${rowNumber}: No se recibió respuesta al crear carrera "${careerName}"`);
+          console.log(`❌ ERROR EN FILA ${rowNumber} (CARRERAS): Respuesta vacía`);
+          console.log('Datos problema:', careerData);
         }
 
       } catch (error: any) {
+        // ======== LOGGING DETALLADO AGREGADO AQUÍ ========
+        console.log(`❌ ERROR EN FILA ${rowNumber} (CARRERAS):`, error.message);
+        console.log('Datos fila problema:', row);
+        console.log('Stack trace:', error.stack);
+        
         this.logger.error(`❌ Error en fila ${rowNumber} (carreras):`, error);
         result.errors.push(`Fila ${rowNumber}: ${error.message}`);
       }
@@ -378,15 +389,31 @@ export class ExcelService {
         this.logger.log(`🔄 Creando usuario: ${email}`);
         const createdUser = await this.usersService.create(userData);
         
-        if (createdUser && ((createdUser as any).success || (createdUser as any)._id)) {
-          result.created++;
-          this.logger.log(`✅ Usuario creado: ${email} (${userData.fullName})`);
+        // ======== LOGGING DETALLADO AGREGADO AQUÍ ========
+        if (createdUser) {
+          console.log(`✅ RESULTADO USUARIO [Fila ${rowNumber}]:`, createdUser);
+          
+          if (createdUser && ((createdUser as any).success || (createdUser as any)._id)) {
+            result.created++;
+            this.logger.log(`✅ Usuario creado: ${email} (${userData.fullName})`);
+          } else {
+            result.errors.push(`Fila ${rowNumber}: Error al crear usuario ${email}`);
+            this.logger.error(`❌ Error creando usuario:`, createdUser);
+            console.log(`❌ ERROR EN FILA ${rowNumber} (USUARIOS): No se pudo crear usuario`);
+            console.log('Datos problema:', userData);
+          }
         } else {
           result.errors.push(`Fila ${rowNumber}: Error al crear usuario ${email}`);
-          this.logger.error(`❌ Error creando usuario:`, createdUser);
+          console.log(`❌ ERROR EN FILA ${rowNumber} (USUARIOS): Respuesta vacía`);
+          console.log('Datos problema:', userData);
         }
 
       } catch (error: any) {
+        // ======== LOGGING DETALLADO AGREGADO AQUÍ ========
+        console.log(`❌ ERROR EN FILA ${rowNumber} (USUARIOS):`, error.message);
+        console.log('Datos fila problema:', row);
+        console.log('Stack trace:', error.stack);
+        
         this.logger.error(`❌ Error en fila ${rowNumber} (usuarios):`, error);
         result.errors.push(`Fila ${rowNumber}: ${error.message}`);
       }
@@ -450,15 +477,31 @@ export class ExcelService {
         this.logger.log(`🔄 Creando materia: ${subjectName}`);
         const createResult = await this.subjectsService.create(subjectData);
         
-        if (createResult && ((createResult as any).success || (createResult as any)._id)) {
-          result.created++;
-          this.logger.log(`✅ Materia creada: ${subjectName} (${subjectCode})`);
+        // ======== LOGGING DETALLADO AGREGADO AQUÍ ========
+        if (createResult) {
+          console.log(`✅ RESULTADO MATERIA [Fila ${rowNumber}]:`, createResult);
+          
+          if (createResult && ((createResult as any).success || (createResult as any)._id)) {
+            result.created++;
+            this.logger.log(`✅ Materia creada: ${subjectName} (${subjectCode})`);
+          } else {
+            result.errors.push(`Fila ${rowNumber}: Error al crear materia "${subjectName}"`);
+            this.logger.error(`❌ Error creando materia:`, createResult);
+            console.log(`❌ ERROR EN FILA ${rowNumber} (MATERIAS): No se pudo crear materia`);
+            console.log('Datos problema:', subjectData);
+          }
         } else {
           result.errors.push(`Fila ${rowNumber}: Error al crear materia "${subjectName}"`);
-          this.logger.error(`❌ Error creando materia:`, createResult);
+          console.log(`❌ ERROR EN FILA ${rowNumber} (MATERIAS): Respuesta vacía`);
+          console.log('Datos problema:', subjectData);
         }
 
       } catch (error: any) {
+        // ======== LOGGING DETALLADO AGREGADO AQUÍ ========
+        console.log(`❌ ERROR EN FILA ${rowNumber} (MATERIAS):`, error.message);
+        console.log('Datos fila problema:', row);
+        console.log('Stack trace:', error.stack);
+        
         this.logger.error(`❌ Error en fila ${rowNumber} (materias):`, error);
         result.errors.push(`Fila ${rowNumber}: ${error.message}`);
       }
@@ -554,6 +597,8 @@ export class ExcelService {
         
         // Extraer ID del grupo creado de diferentes estructuras de respuesta
         if (createResult) {
+          console.log(`✅ RESULTADO GRUPO [Fila ${rowNumber}]:`, createResult);
+          
           const resultObj = createResult as any;
           if (resultObj._id) {
             groupId = resultObj._id.toString();
@@ -575,9 +620,16 @@ export class ExcelService {
         } else {
           result.errors.push(`Fila ${rowNumber}: Error al crear grupo "${groupName}" - No se obtuvo ID`);
           this.logger.error(`❌ Error creando grupo - no se obtuvo ID:`, createResult);
+          console.log(`❌ ERROR EN FILA ${rowNumber} (GRUPOS): No se pudo crear grupo`);
+          console.log('Datos problema:', groupData);
         }
 
       } catch (error: any) {
+        // ======== LOGGING DETALLADO AGREGADO AQUÍ ========
+        console.log(`❌ ERROR EN FILA ${rowNumber} (GRUPOS):`, error.message);
+        console.log('Datos fila problema:', row);
+        console.log('Stack trace:', error.stack);
+        
         this.logger.error(`❌ Error en fila ${rowNumber} (grupos):`, error);
         result.errors.push(`Fila ${rowNumber}: ${error.message}`);
       }
