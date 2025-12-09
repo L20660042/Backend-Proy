@@ -5,11 +5,14 @@ import {
   UploadedFile, 
   UseInterceptors, 
   Res, 
-  UseGuards 
+  UseGuards,
+  BadRequestException
 } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
 import { Response } from 'express';
 import * as XLSX from 'xlsx';
+import * as path from 'path';
+import { diskStorage } from 'multer';
 import { ExcelService } from './excel.service';
 import { JwtGuard } from '../auth/jwt.guard';
 import { RolesGuard } from '../auth/roles.guard';
@@ -23,9 +26,57 @@ export class ExcelController {
 
   @Post('upload')
   @Roles(UserRole.ADMIN, UserRole.SUPERADMIN)
-  @UseInterceptors(FileInterceptor('file'))
+  @UseInterceptors(FileInterceptor('file', {
+    storage: diskStorage({
+      destination: './uploads/temp',
+      filename: (req, file, cb) => {
+        const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1E9);
+        const ext = path.extname(file.originalname);
+        const name = path.basename(file.originalname, ext);
+        cb(null, `${name}-${uniqueSuffix}${ext}`);
+      }
+    }),
+    limits: {
+      fileSize: 10 * 1024 * 1024, // 10MB
+    },
+    fileFilter: (req, file, cb) => {
+      const allowedMimes = [
+        'application/vnd.ms-excel',
+        'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+        'application/vnd.openxmlformats-officedocument.spreadsheetml.template',
+        'application/vnd.ms-excel.sheet.macroEnabled.12',
+        'text/csv',
+        'text/plain'
+      ];
+      
+      const allowedExtensions = ['.xlsx', '.xls', '.csv', '.txt'];
+      const fileExtension = path.extname(file.originalname).toLowerCase();
+      
+      if (allowedMimes.includes(file.mimetype) || allowedExtensions.includes(fileExtension)) {
+        cb(null, true);
+      } else {
+        cb(new BadRequestException(
+          `Tipo de archivo no permitido. Formatos aceptados: ${allowedExtensions.join(', ')}`
+        ), false);
+      }
+    }
+  }))
   async upload(@UploadedFile() file: Express.Multer.File) {
-    return this.excelService.importExcel(file);
+    console.log('📥 Archivo recibido en backend:', {
+      originalname: file.originalname,
+      size: file.size,
+      mimetype: file.mimetype,
+      path: file.path
+    });
+    
+    try {
+      const result = await this.excelService.importExcel(file);
+      console.log('✅ Importación completada:', result.summary);
+      return result;
+    } catch (error: any) {
+      console.error('❌ Error en importación:', error);
+      throw error;
+    }
   }
 
   @Get('template')
@@ -124,9 +175,7 @@ export class ExcelController {
         { wch: 30 }  // students
       ];
       
-      // ========== AGREGAR HERRAMIENTAS PARA EL USUARIO ==========
-      
-      // Hoja de INSTRUCCIONES
+      // ========== HOJA DE INSTRUCCIONES ==========
       const instruccionesData = [
         ['📋 INSTRUCCIONES DE USO - PLANTILLA METRICAMPUS'],
         [''],
@@ -172,14 +221,7 @@ export class ExcelController {
         ['CAMPO "teacher" y "students" (en grupos):'],
         ['• Use el email EXACTO del usuario (ej: "docente@test.com")'],
         ['• Para estudiantes: separar emails por coma (ej: "email1@test.com, email2@test.com")'],
-        ['• Los usuarios deben existir en la hoja "usuarios"'],
-        [''],
-        ['CONSEJOS:'],
-        ['1. Importe primero carreras y usuarios'],
-        ['2. Luego importe materias'],
-        ['3. Finalmente importe grupos'],
-        ['4. Verifique que los nombres/códigos coincidan exactamente entre hojas'],
-        ['5. Descargue la plantilla actualizada si tiene problemas']
+        ['• Los usuarios deben existir en la hoja "usuarios"']
       ];
       
       const instruccionesSheet = XLSX.utils.aoa_to_sheet(instruccionesData);
@@ -190,26 +232,19 @@ export class ExcelController {
       ];
       
       // ========== AGREGAR HOJAS AL LIBRO ==========
-      
-      // Primero la hoja de instrucciones
       XLSX.utils.book_append_sheet(workbook, instruccionesSheet, '📋 INSTRUCCIONES');
-      
-      // Luego las hojas de datos
       XLSX.utils.book_append_sheet(workbook, carrerasSheet, 'carreras');
       XLSX.utils.book_append_sheet(workbook, usuariosSheet, 'usuarios');
       XLSX.utils.book_append_sheet(workbook, materiasSheet, 'materias');
       XLSX.utils.book_append_sheet(workbook, gruposSheet, 'grupos');
       
       // ========== CONFIGURAR Y ENVIAR RESPONSE ==========
-      
-      // Generar buffer
       const buffer = XLSX.write(workbook, { 
         type: 'buffer', 
         bookType: 'xlsx',
         bookSST: false
       });
       
-      // Configurar headers
       const timestamp = new Date().toISOString().split('T')[0];
       const filename = `plantilla_metricampus_${timestamp}.xlsx`;
       
@@ -222,13 +257,10 @@ export class ExcelController {
       
       console.log(`✅ Plantilla generada: ${filename} (${buffer.length} bytes)`);
       
-      // Enviar archivo
       res.send(buffer);
       
     } catch (error: any) {
       console.error('❌ Error generando plantilla:', error);
-      
-      // Si hay error, enviar mensaje JSON
       res.status(500).json({
         success: false,
         message: `Error generando plantilla: ${error.message}`,
@@ -237,7 +269,6 @@ export class ExcelController {
     }
   }
 
-  // Opcional: Endpoint para verificar formato
   @Get('formats')
   @Roles(UserRole.ADMIN, UserRole.SUPERADMIN)
   async getSupportedFormats() {
@@ -265,6 +296,47 @@ export class ExcelController {
       ],
       maxSize: '10MB',
       requiredSheets: ['carreras', 'usuarios', 'materias', 'grupos']
+    };
+  }
+
+  @Get('test')
+  @Roles(UserRole.ADMIN, UserRole.SUPERADMIN)
+  async test() {
+    console.log('🧪 Probando funcionalidad Excel');
+    
+    try {
+      // Test 1: Verificar que los servicios están disponibles
+      const careers = await this.excelService['careersService'].findAll();
+      const users = await this.excelService['usersService'].findAll();
+      
+      console.log('🧪 Carreras disponibles:', careers?.data?.length || 0);
+      console.log('🧪 Usuarios disponibles:', users?.length || 0);
+      
+      return {
+        success: true,
+        message: 'Servicios funcionando',
+        stats: {
+          careers: careers?.data?.length || 0,
+          users: users?.length || 0
+        }
+      };
+    } catch (error: any) {
+      console.error('❌ Error en test:', error);
+      return {
+        success: false,
+        message: error.message
+      };
+    }
+  }
+
+  @Get('uploads')
+  @Roles(UserRole.ADMIN, UserRole.SUPERADMIN)
+  async getUploads() {
+    // Por ahora devolver array vacío hasta que implementes la base de datos
+    return {
+      success: true,
+      data: [],
+      message: 'Endpoint para historial de importaciones (pendiente de implementar)'
     };
   }
 }
