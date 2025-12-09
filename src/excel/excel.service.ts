@@ -10,6 +10,24 @@ import { CapacitacionService } from '../capacitacion/capacitacion.service';
 import { AlertsService } from '../alerts/alerts.service';
 import { hashPassword } from '../common/utils';
 
+// Definir tipos para los resultados
+interface SheetResult {
+  created: number;
+  errors: string[];
+}
+
+interface ImportResult {
+  summary: {
+    totalSheets: number;
+    processedSheets: number;
+    errors: string[];
+    success: boolean;
+    message: string;
+    totalCreated: number;
+  };
+  details: Record<string, SheetResult>;
+}
+
 @Injectable()
 export class ExcelService {
   private readonly logger = new Logger(ExcelService.name);
@@ -24,7 +42,7 @@ export class ExcelService {
     private readonly alertsService: AlertsService,
   ) {}
 
-  async importExcel(file: Express.Multer.File) {
+  async importExcel(file: Express.Multer.File): Promise<ImportResult> {
     this.logger.log('📥 ========== INICIO IMPORTACIÓN EXCEL ==========');
     this.logger.log('📥 Archivo recibido:', {
       originalname: file.originalname,
@@ -62,7 +80,7 @@ export class ExcelService {
       throw new BadRequestException(`Error leyendo archivo Excel: ${error.message}`);
     }
 
-    const result: Record<string, any> = {
+    const result: ImportResult = {
       summary: {
         totalSheets: workbook.SheetNames.length,
         processedSheets: 0,
@@ -78,67 +96,57 @@ export class ExcelService {
       // IMPORTAR EN ORDEN: Carreras -> Usuarios -> Materias -> Grupos
       
       // 1. Primero procesar carreras (si existen)
-      if (workbook.SheetNames.some(name => 
+      const carrerasSheetName = workbook.SheetNames.find(name => 
         ['carreras', 'careers'].includes(name.toLowerCase().trim())
-      )) {
-        const sheetName = workbook.SheetNames.find(name => 
-          ['carreras', 'careers'].includes(name.toLowerCase().trim())
-        );
-        if (sheetName) {
-          this.logger.log(`🔄 Procesando carreras desde hoja: "${sheetName}"`);
-          const sheet = workbook.Sheets[sheetName];
-          const data = XLSX.utils.sheet_to_json(sheet);
-          result.details['carreras'] = await this.importCareers(data);
-          result.summary.processedSheets++;
-        }
+      );
+      
+      if (carrerasSheetName) {
+        this.logger.log(`🔄 Procesando carreras desde hoja: "${carrerasSheetName}"`);
+        const sheet = workbook.Sheets[carrerasSheetName];
+        const data = XLSX.utils.sheet_to_json(sheet);
+        result.details['carreras'] = await this.importCareers(data);
+        result.summary.processedSheets++;
+      } else {
+        this.logger.warn('⚠️ No se encontró hoja de carreras. Los usuarios y materias necesitarán IDs de carrera válidos.');
       }
 
       // 2. Luego usuarios
-      if (workbook.SheetNames.some(name => 
+      const usuariosSheetName = workbook.SheetNames.find(name => 
         ['usuarios', 'users'].includes(name.toLowerCase().trim())
-      )) {
-        const sheetName = workbook.SheetNames.find(name => 
-          ['usuarios', 'users'].includes(name.toLowerCase().trim())
-        );
-        if (sheetName) {
-          this.logger.log(`🔄 Procesando usuarios desde hoja: "${sheetName}"`);
-          const sheet = workbook.Sheets[sheetName];
-          const data = XLSX.utils.sheet_to_json(sheet);
-          result.details['usuarios'] = await this.importUsers(data);
-          result.summary.processedSheets++;
-        }
+      );
+      
+      if (usuariosSheetName) {
+        this.logger.log(`🔄 Procesando usuarios desde hoja: "${usuariosSheetName}"`);
+        const sheet = workbook.Sheets[usuariosSheetName];
+        const data = XLSX.utils.sheet_to_json(sheet);
+        result.details['usuarios'] = await this.importUsers(data);
+        result.summary.processedSheets++;
       }
 
       // 3. Luego materias
-      if (workbook.SheetNames.some(name => 
+      const materiasSheetName = workbook.SheetNames.find(name => 
         ['materias', 'subjects', 'materia', 'subject'].includes(name.toLowerCase().trim())
-      )) {
-        const sheetName = workbook.SheetNames.find(name => 
-          ['materias', 'subjects', 'materia', 'subject'].includes(name.toLowerCase().trim())
-        );
-        if (sheetName) {
-          this.logger.log(`🔄 Procesando materias desde hoja: "${sheetName}"`);
-          const sheet = workbook.Sheets[sheetName];
-          const data = XLSX.utils.sheet_to_json(sheet);
-          result.details['materias'] = await this.importSubjects(data);
-          result.summary.processedSheets++;
-        }
+      );
+      
+      if (materiasSheetName) {
+        this.logger.log(`🔄 Procesando materias desde hoja: "${materiasSheetName}"`);
+        const sheet = workbook.Sheets[materiasSheetName];
+        const data = XLSX.utils.sheet_to_json(sheet);
+        result.details['materias'] = await this.importSubjects(data);
+        result.summary.processedSheets++;
       }
 
       // 4. Finalmente grupos
-      if (workbook.SheetNames.some(name => 
+      const gruposSheetName = workbook.SheetNames.find(name => 
         ['grupos', 'groups', 'grupo', 'group'].includes(name.toLowerCase().trim())
-      )) {
-        const sheetName = workbook.SheetNames.find(name => 
-          ['grupos', 'groups', 'grupo', 'group'].includes(name.toLowerCase().trim())
-        );
-        if (sheetName) {
-          this.logger.log(`🔄 Procesando grupos desde hoja: "${sheetName}"`);
-          const sheet = workbook.Sheets[sheetName];
-          const data = XLSX.utils.sheet_to_json(sheet);
-          result.details['grupos'] = await this.importGroups(data);
-          result.summary.processedSheets++;
-        }
+      );
+      
+      if (gruposSheetName) {
+        this.logger.log(`🔄 Procesando grupos desde hoja: "${gruposSheetName}"`);
+        const sheet = workbook.Sheets[gruposSheetName];
+        const data = XLSX.utils.sheet_to_json(sheet);
+        result.details['grupos'] = await this.importGroups(data);
+        result.summary.processedSheets++;
       }
 
       // Procesar otras hojas opcionales
@@ -160,7 +168,7 @@ export class ExcelService {
     }
 
     // Calcular totales
-    const totalCreated = Object.values(result.details).reduce((sum: number, sheet: any) => 
+    const totalCreated = Object.values(result.details).reduce((sum: number, sheet: SheetResult) => 
       sum + (sheet.created || 0), 0);
     
     result.summary.totalCreated = totalCreated;
@@ -194,9 +202,9 @@ export class ExcelService {
   }
 
   /** ========== IMPORTAR CARRERAS ========== */
-  private async importCareers(data: any[]): Promise<{ created: number; errors: string[] }> {
+  private async importCareers(data: any[]): Promise<SheetResult> {
     this.logger.log(`📥 Importando ${data.length} carreras`);
-    const result = { created: 0, errors: [] as string[] };
+    const result: SheetResult = { created: 0, errors: [] };
     
     for (let i = 0; i < data.length; i++) {
       const row = data[i];
@@ -217,7 +225,7 @@ export class ExcelService {
           name: careerName,
           code: careerCode,
           description: row.description ? row.description.toString().trim() : '',
-          duration: row.duration ? parseInt(row.duration) : 8,
+          duration: row.duration ? parseInt(row.duration.toString()) || 8 : 8,
         };
 
         this.logger.log(`📋 Procesando carrera [Fila ${rowNumber}]: ${careerName} (${careerCode})`);
@@ -235,12 +243,16 @@ export class ExcelService {
         const createResult = await this.careersService.create(careerData);
         
         // Manejar diferentes estructuras de respuesta
-        if (createResult && (createResult.success || createResult._id)) {
-          result.created++;
-          this.logger.log(`✅ Carrera creada: ${careerName} (${careerCode})`);
+        if (createResult) {
+          if ((createResult as any).success || (createResult as any)._id) {
+            result.created++;
+            this.logger.log(`✅ Carrera creada: ${careerName} (${careerCode})`);
+          } else {
+            result.errors.push(`Fila ${rowNumber}: Error al crear carrera "${careerName}"`);
+            this.logger.error(`❌ Error creando carrera:`, createResult);
+          }
         } else {
-          result.errors.push(`Fila ${rowNumber}: Error al crear carrera "${careerName}"`);
-          this.logger.error(`❌ Error creando carrera:`, createResult);
+          result.errors.push(`Fila ${rowNumber}: No se recibió respuesta al crear carrera "${careerName}"`);
         }
 
       } catch (error: any) {
@@ -254,9 +266,9 @@ export class ExcelService {
   }
 
   /** ========== IMPORTAR USUARIOS ========== */
-  private async importUsers(data: any[]): Promise<{ created: number; errors: string[] }> {
+  private async importUsers(data: any[]): Promise<SheetResult> {
     this.logger.log(`📥 Importando ${data.length} usuarios`);
-    const result = { created: 0, errors: [] as string[] };
+    const result: SheetResult = { created: 0, errors: [] };
     
     for (let i = 0; i < data.length; i++) {
       const row = data[i];
@@ -318,7 +330,7 @@ export class ExcelService {
         }
 
         // Contraseña
-        if (row.password) {
+        if (row.password && row.password.toString().trim()) {
           userData.password = await hashPassword(row.password.toString());
         } else {
           // Contraseña por defecto
@@ -354,7 +366,7 @@ export class ExcelService {
         this.logger.log(`🔄 Creando usuario: ${email}`);
         const createdUser = await this.usersService.create(userData);
         
-        if (createdUser && (createdUser.success || createdUser._id)) {
+        if (createdUser && ((createdUser as any).success || (createdUser as any)._id)) {
           result.created++;
           this.logger.log(`✅ Usuario creado: ${email} (${userData.fullName})`);
         } else {
@@ -373,9 +385,9 @@ export class ExcelService {
   }
 
   /** ========== IMPORTAR MATERIAS ========== */
-  private async importSubjects(data: any[]): Promise<{ created: number; errors: string[] }> {
+  private async importSubjects(data: any[]): Promise<SheetResult> {
     this.logger.log(`📥 Importando ${data.length} materias`);
-    const result = { created: 0, errors: [] as string[] };
+    const result: SheetResult = { created: 0, errors: [] };
     
     for (let i = 0; i < data.length; i++) {
       const row = data[i];
@@ -408,8 +420,8 @@ export class ExcelService {
           name: subjectName,
           code: subjectCode,
           career: careerId,
-          credits: row.credits ? parseInt(row.credits) : 4,
-          semester: row.semester ? parseInt(row.semester) : 1,
+          credits: row.credits ? parseInt(row.credits.toString()) || 4 : 4,
+          semester: row.semester ? parseInt(row.semester.toString()) || 1 : 1,
         };
 
         this.logger.log(`📋 Procesando materia [Fila ${rowNumber}]: ${subjectName} (${subjectCode})`);
@@ -426,7 +438,7 @@ export class ExcelService {
         this.logger.log(`🔄 Creando materia: ${subjectName}`);
         const createResult = await this.subjectsService.create(subjectData);
         
-        if (createResult && (createResult.success || createResult._id)) {
+        if (createResult && ((createResult as any).success || (createResult as any)._id)) {
           result.created++;
           this.logger.log(`✅ Materia creada: ${subjectName} (${subjectCode})`);
         } else {
@@ -445,9 +457,9 @@ export class ExcelService {
   }
 
   /** ========== IMPORTAR GRUPOS ========== */
-  private async importGroups(data: any[]): Promise<{ created: number; errors: string[] }> {
+  private async importGroups(data: any[]): Promise<SheetResult> {
     this.logger.log(`📥 Importando ${data.length} grupos`);
-    const result = { created: 0, errors: [] as string[] };
+    const result: SheetResult = { created: 0, errors: [] };
     
     for (let i = 0; i < data.length; i++) {
       const row = data[i];
@@ -477,15 +489,20 @@ export class ExcelService {
         }
 
         // Obtener la materia para obtener su carrera
-        const subjectResult = await this.subjectsService.findOne(subjectId);
         let careerId: string | undefined;
-        
-        if (subjectResult && subjectResult.success && subjectResult.data) {
-          const subjectData = subjectResult.data;
-          careerId = subjectData.careerId || subjectData.career?._id || subjectData.career;
-        } else if (subjectResult && subjectResult._id) {
-          // Si la respuesta es el objeto directo
-          careerId = (subjectResult as any).careerId || (subjectResult as any).career?._id;
+        try {
+          const subjectResult = await this.subjectsService.findOne(subjectId);
+          
+          if (subjectResult) {
+            const subject = subjectResult as any;
+            if (subject.success && subject.data) {
+              careerId = subject.data.careerId || subject.data.career?._id || subject.data.career;
+            } else if (subject._id) {
+              careerId = subject.careerId || subject.career?._id || subject.career;
+            }
+          }
+        } catch (error) {
+          this.logger.warn(`⚠️ No se pudo obtener carrera de la materia: ${error.message}`);
         }
 
         // Preparar datos del grupo
@@ -494,7 +511,7 @@ export class ExcelService {
           code: groupCode,
           subject: subjectId,
           schedule: row.schedule ? row.schedule.toString().trim() : '',
-          capacity: row.capacity ? parseInt(row.capacity) : 30,
+          capacity: row.capacity ? parseInt(row.capacity.toString()) || 30 : 30,
           active: row.active !== undefined ? Boolean(row.active) : true,
         };
 
@@ -525,12 +542,13 @@ export class ExcelService {
         
         // Extraer ID del grupo creado de diferentes estructuras de respuesta
         if (createResult) {
-          if (createResult._id) {
-            groupId = createResult._id.toString();
-          } else if (createResult.success && createResult.data && createResult.data._id) {
-            groupId = createResult.data._id.toString();
-          } else if (createResult.data && createResult.data._id) {
-            groupId = createResult.data._id.toString();
+          const resultObj = createResult as any;
+          if (resultObj._id) {
+            groupId = resultObj._id.toString();
+          } else if (resultObj.success && resultObj.data && resultObj.data._id) {
+            groupId = resultObj.data._id.toString();
+          } else if (resultObj.data && resultObj.data._id) {
+            groupId = resultObj.data._id.toString();
           }
         }
 
@@ -564,14 +582,14 @@ export class ExcelService {
     groupId: string, 
     studentsString: string, 
     rowNumber: number,
-    result: { created: number; errors: string[] }
+    result: SheetResult
   ): Promise<void> {
     try {
       // Separar emails por coma o punto y coma
       const studentEmails = studentsString
         .split(/[,;]/)
         .map(email => email.trim())
-        .filter(email => email.length > 0 && this.isValidEmail(email));
+        .filter(email => email.length > 0);
 
       if (studentEmails.length === 0) {
         this.logger.log(`ℹ️ No hay estudiantes válidos para asignar al grupo ${groupId}`);
@@ -625,14 +643,15 @@ export class ExcelService {
         
         // Manejar diferentes estructuras de respuesta
         if (careerResult) {
-          if (careerResult.success && careerResult.data && careerResult.data._id) {
-            return careerResult.data._id.toString();
+          const result = careerResult as any;
+          if (result.success && result.data && result.data._id) {
+            return result.data._id.toString();
           }
-          if (careerResult._id) {
-            return careerResult._id.toString();
+          if (result._id) {
+            return result._id.toString();
           }
-          if (careerResult.data && (careerResult.data as any)._id) {
-            return (careerResult.data as any)._id.toString();
+          if (result.data && result.data._id) {
+            return result.data._id.toString();
           }
         }
       } catch (error) {
@@ -647,18 +666,17 @@ export class ExcelService {
 
       // Extraer array de diferentes estructuras
       if (careersResult) {
-        if (careersResult.success && careersResult.data) {
-          if (Array.isArray(careersResult.data)) {
-            careersArray = careersResult.data;
-          } else if (careersResult.data.data && Array.isArray(careersResult.data.data)) {
-            careersArray = careersResult.data.data;
-          } else if ((careersResult.data as any).data && Array.isArray((careersResult.data as any).data)) {
-            careersArray = (careersResult.data as any).data;
+        const result = careersResult as any;
+        if (result.success && result.data) {
+          if (Array.isArray(result.data)) {
+            careersArray = result.data;
+          } else if (result.data.data && Array.isArray(result.data.data)) {
+            careersArray = result.data.data;
           }
         } else if (Array.isArray(careersResult)) {
           careersArray = careersResult;
-        } else if (careersResult.data && Array.isArray(careersResult.data)) {
-          careersArray = careersResult.data;
+        } else if (result.data && Array.isArray(result.data)) {
+          careersArray = result.data;
         }
       }
 
@@ -672,7 +690,7 @@ export class ExcelService {
 
       if (found) {
         this.logger.log(`✅ Carrera encontrada: "${cleanId}" -> ${found._id} (${found.name})`);
-        return found._id?.toString();
+        return found._id?.toString() || null;
       }
 
     } catch (error) {
@@ -690,11 +708,12 @@ export class ExcelService {
       let careersArray: any[] = [];
 
       if (careersResult) {
-        if (careersResult.success && careersResult.data) {
-          if (Array.isArray(careersResult.data)) {
-            careersArray = careersResult.data;
-          } else if (careersResult.data.data && Array.isArray(careersResult.data.data)) {
-            careersArray = careersResult.data.data;
+        const result = careersResult as any;
+        if (result.success && result.data) {
+          if (Array.isArray(result.data)) {
+            careersArray = result.data;
+          } else if (result.data.data && Array.isArray(result.data.data)) {
+            careersArray = result.data.data;
           }
         } else if (Array.isArray(careersResult)) {
           careersArray = careersResult;
@@ -720,11 +739,12 @@ export class ExcelService {
       let subjectsArray: any[] = [];
 
       if (subjectsResult) {
-        if (subjectsResult.success && subjectsResult.data) {
-          if (Array.isArray(subjectsResult.data)) {
-            subjectsArray = subjectsResult.data;
-          } else if (subjectsResult.data.data && Array.isArray(subjectsResult.data.data)) {
-            subjectsArray = subjectsResult.data.data;
+        const result = subjectsResult as any;
+        if (result.success && result.data) {
+          if (Array.isArray(result.data)) {
+            subjectsArray = result.data;
+          } else if (result.data.data && Array.isArray(result.data.data)) {
+            subjectsArray = result.data.data;
           }
         } else if (Array.isArray(subjectsResult)) {
           subjectsArray = subjectsResult;
@@ -755,11 +775,12 @@ export class ExcelService {
         const subjectResult = await this.subjectsService.findOne(cleanId);
         
         if (subjectResult) {
-          if (subjectResult.success && subjectResult.data && subjectResult.data._id) {
-            return subjectResult.data._id.toString();
+          const result = subjectResult as any;
+          if (result.success && result.data && result.data._id) {
+            return result.data._id.toString();
           }
-          if (subjectResult._id) {
-            return subjectResult._id.toString();
+          if (result._id) {
+            return result._id.toString();
           }
         }
       } catch (error) {
@@ -773,11 +794,12 @@ export class ExcelService {
       let subjectsArray: any[] = [];
 
       if (subjectsResult) {
-        if (subjectsResult.success && subjectsResult.data) {
-          if (Array.isArray(subjectsResult.data)) {
-            subjectsArray = subjectsResult.data;
-          } else if (subjectsResult.data.data && Array.isArray(subjectsResult.data.data)) {
-            subjectsArray = subjectsResult.data.data;
+        const result = subjectsResult as any;
+        if (result.success && result.data) {
+          if (Array.isArray(result.data)) {
+            subjectsArray = result.data;
+          } else if (result.data.data && Array.isArray(result.data.data)) {
+            subjectsArray = result.data.data;
           }
         } else if (Array.isArray(subjectsResult)) {
           subjectsArray = subjectsResult;
@@ -793,7 +815,7 @@ export class ExcelService {
 
       if (found) {
         this.logger.log(`✅ Materia encontrada: "${cleanId}" -> ${found._id} (${found.name})`);
-        return found._id?.toString();
+        return found._id?.toString() || null;
       }
 
     } catch (error) {

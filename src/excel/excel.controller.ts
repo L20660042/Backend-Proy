@@ -6,7 +6,8 @@ import {
   UseInterceptors, 
   Res, 
   UseGuards,
-  BadRequestException
+  BadRequestException,
+  Req
 } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
 import { Response } from 'express';
@@ -299,35 +300,39 @@ export class ExcelController {
     };
   }
 
-  @Get('test')
-  @Roles(UserRole.ADMIN, UserRole.SUPERADMIN)
-  async test() {
-    console.log('🧪 Probando funcionalidad Excel');
+  // En el método test() del controller, línea ~310:
+@Get('test')
+@Roles(UserRole.ADMIN, UserRole.SUPERADMIN)
+async test(@Req() req: any) {  // Añadir @Req() para obtener el request
+  console.log('🧪 Probando funcionalidad Excel');
+  
+  try {
+    // Obtener el usuario actual del request
+    const currentUser = req.user;
     
-    try {
-      // Test 1: Verificar que los servicios están disponibles
-      const careers = await this.excelService['careersService'].findAll();
-      const users = await this.excelService['usersService'].findAll();
-      
-      console.log('🧪 Carreras disponibles:', careers?.data?.length || 0);
-      console.log('🧪 Usuarios disponibles:', users?.length || 0);
-      
-      return {
-        success: true,
-        message: 'Servicios funcionando',
-        stats: {
-          careers: careers?.data?.length || 0,
-          users: users?.length || 0
-        }
-      };
-    } catch (error: any) {
-      console.error('❌ Error en test:', error);
-      return {
-        success: false,
-        message: error.message
-      };
-    }
+    // Test 1: Verificar que los servicios están disponibles
+    const careers = await this.excelService['careersService'].findAll();
+    const users = await this.excelService['usersService'].findAll(currentUser); // Pasar currentUser
+    
+    console.log('🧪 Carreras disponibles:', careers?.data?.length || 0);
+    console.log('🧪 Usuarios disponibles:', users?.length || 0);
+    
+    return {
+      success: true,
+      message: 'Servicios funcionando',
+      stats: {
+        careers: careers?.data?.length || 0,
+        users: users?.length || 0
+      }
+    };
+  } catch (error: any) {
+    console.error('❌ Error en test:', error);
+    return {
+      success: false,
+      message: error.message
+    };
   }
+}
 
   @Get('uploads')
   @Roles(UserRole.ADMIN, UserRole.SUPERADMIN)
