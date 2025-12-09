@@ -178,4 +178,26 @@ export class SubjectsService {
       message: 'Materia eliminada exitosamente'
     };
   }
+  
+async findByCode(code: string): Promise<any> {
+  const subject = await this.subjectModel.findOne({ 
+    code: { $regex: `^${code}$`, $options: 'i' } 
+  })
+  .populate('career', 'name code')
+  .exec();
+
+  if (subject) {
+    return {
+      success: true,
+      data: {
+        ...subject.toObject(),
+        status: subject.active ? 'active' : 'inactive',
+        careerId: (subject.career as any)?.['_id']?.toString(),
+        careerName: (subject.career as any)?.['name'] || 'Desconocida'
+      }
+    };
+  }
+  
+  return { success: false, message: 'Materia no encontrada' };
+}
 }

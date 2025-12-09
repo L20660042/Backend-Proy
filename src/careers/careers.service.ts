@@ -108,4 +108,25 @@ export class CareersService {
       message: 'Carrera eliminada exitosamente'
     };
   }
+  
+async findByNameOrCode(identifier: string): Promise<any> {
+  const career = await this.careerModel.findOne({
+    $or: [
+      { name: { $regex: `^${identifier}$`, $options: 'i' } },
+      { code: { $regex: `^${identifier}$`, $options: 'i' } }
+    ]
+  }).exec();
+
+  if (career) {
+    return {
+      success: true,
+      data: {
+        ...career.toObject(),
+        status: career.active ? 'active' : 'inactive'
+      }
+    };
+  }
+  
+  return { success: false, message: 'Carrera no encontrada' };
+}
 }

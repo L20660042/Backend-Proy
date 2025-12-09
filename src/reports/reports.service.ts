@@ -14,10 +14,9 @@ import { GenerateReportDto } from './dto/generate-report.dto';
 
 @Injectable()
 export class ReportsService {
-  // Hacer reportModel público o agregar getter
-  @InjectModel(Report.name) public reportModel: Model<ReportDocument>;
 
   constructor(
+    @InjectModel(Report.name) public reportModel: Model<ReportDocument>,
     @InjectModel(Tutoria.name) private tutoriaModel: Model<TutoriaDocument>,
     @InjectModel(Capacitacion.name) private capacitacionModel: Model<CapacitacionDocument>,
     @InjectModel(User.name) private userModel: Model<UserDocument>,
