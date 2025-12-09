@@ -21,5 +21,6 @@ import { AlertsModule } from '../alerts/alerts.module';
   ],
   controllers: [ExcelController],
   providers: [ExcelService],
+  exports: [ExcelService],
 })
 export class ExcelModule {}

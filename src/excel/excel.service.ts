@@ -40,7 +40,19 @@ export class ExcelService {
     private readonly tutoriaService: TutoriaService,
     private readonly capacitacionService: CapacitacionService,
     private readonly alertsService: AlertsService,
-  ) {}
+  ) {
+    // ======== LOGGING INICIAL - AGREGAR ESTO ========
+    this.logger.log('✅ ExcelService inicializado');
+    this.logger.log('✅ Dependencias inyectadas correctamente:');
+    this.logger.log(`  - UsersService: ${!!usersService ? '✓' : '✗'}`);
+    this.logger.log(`  - CareersService: ${!!careersService ? '✓' : '✗'}`);
+    this.logger.log(`  - SubjectsService: ${!!subjectsService ? '✓' : '✗'}`);
+    this.logger.log(`  - GroupsService: ${!!groupsService ? '✓' : '✗'}`);
+    this.logger.log(`  - TutoriaService: ${!!tutoriaService ? '✓' : '✗'}`);
+    this.logger.log(`  - CapacitacionService: ${!!capacitacionService ? '✓' : '✗'}`);
+    this.logger.log(`  - AlertsService: ${!!alertsService ? '✓' : '✗'}`);
+    // ================================================
+  }
 
   async importExcel(file: Express.Multer.File): Promise<ImportResult> {
     this.logger.log('📥 ========== INICIO IMPORTACIÓN EXCEL ==========');

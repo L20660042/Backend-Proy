@@ -7,12 +7,15 @@ import {
   Res, 
   UseGuards,
   BadRequestException,
-  Req
+  Req,
+  InternalServerErrorException
 } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
 import { Response } from 'express';
 import * as XLSX from 'xlsx';
 import * as path from 'path';
+import * as fs from 'fs';
+import * as os from 'os';
 import { diskStorage } from 'multer';
 import { ExcelService } from './excel.service';
 import { JwtGuard } from '../auth/jwt.guard';
@@ -45,7 +48,19 @@ export class ExcelController {
   @Roles(UserRole.ADMIN, UserRole.SUPERADMIN)
   @UseInterceptors(FileInterceptor('file', {
     storage: diskStorage({
-      destination: './uploads/temp',
+      destination: (req, file, cb) => {
+        // Usar carpeta temporal del sistema (siempre existe)
+        const tmpDir = os.tmpdir();
+        const uploadDir = path.join(tmpDir, 'metricampus-uploads');
+        
+        // Crear directorio si no existe
+        if (!fs.existsSync(uploadDir)) {
+          fs.mkdirSync(uploadDir, { recursive: true });
+        }
+        
+        console.log(`📁 Guardando en: ${uploadDir}`);
+        cb(null, uploadDir);
+      },
       filename: (req, file, cb) => {
         const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1E9);
         const ext = path.extname(file.originalname);
@@ -79,20 +94,56 @@ export class ExcelController {
     }
   }))
   async upload(@UploadedFile() file: Express.Multer.File): Promise<any> {
-    console.log('📥 Archivo recibido en backend:', {
-      originalname: file.originalname,
-      size: file.size,
-      mimetype: file.mimetype,
-      path: file.path
+    console.log('📥 Archivo recibido en backend - DETALLES:', {
+      originalname: file?.originalname,
+      size: file?.size,
+      mimetype: file?.mimetype,
+      path: file?.path,
+      bufferExists: !!file?.buffer,
+      bufferLength: file?.buffer?.length || 0
     });
     
     try {
+      if (!file) {
+        throw new BadRequestException('No se recibió ningún archivo');
+      }
+      
+      // Si no hay buffer pero hay archivo en disco, leerlo
+      if ((!file.buffer || file.buffer.length === 0) && file.path) {
+        console.log(`📂 Leyendo archivo del disco: ${file.path}`);
+        if (fs.existsSync(file.path)) {
+          file.buffer = fs.readFileSync(file.path);
+          console.log(`✅ Archivo leído del disco: ${file.buffer.length} bytes`);
+        } else {
+          throw new BadRequestException('El archivo no se pudo leer del disco');
+        }
+      }
+      
+      if (!file.buffer || file.buffer.length === 0) {
+        throw new BadRequestException('El archivo está vacío');
+      }
+      
       const result = await this.excelService.importExcel(file);
-      console.log('✅ Importación completada:', result.summary);
+      console.log('✅ Importación completada exitosamente:', result.summary);
       return result;
+      
     } catch (error: any) {
-      console.error('❌ Error en importación:', error);
-      throw error;
+      console.error('❌ Error en importación - DETALLES:', {
+        message: error.message,
+        stack: error.stack,
+        name: error.name
+      });
+      
+      // Si es un error conocido, relanzarlo
+      if (error instanceof BadRequestException) {
+        throw error;
+      }
+      
+      // Para errores internos, dar un mensaje más informativo
+      console.error(`❌ Error interno del servidor: ${error.message}`);
+      throw new InternalServerErrorException(
+        `Error procesando el archivo: ${error.message}`
+      );
     }
   }
 
@@ -325,8 +376,6 @@ export class ExcelController {
       // Obtener el usuario actual del request
       const currentUser = req.user;
       
-      // Nota: No es buena práctica acceder a servicios privados así
-      // Mejor agregar métodos públicos en ExcelService para test
       return {
         success: true,
         message: 'Endpoint de prueba disponible',
@@ -345,7 +394,6 @@ export class ExcelController {
   @Get('uploads')
   @Roles(UserRole.ADMIN, UserRole.SUPERADMIN)
   async getUploads() {
-    // Por ahora devolver array vacío hasta que implementes la base de datos
     return {
       success: true,
       data: [],
