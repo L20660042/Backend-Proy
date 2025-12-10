@@ -213,7 +213,7 @@ export class ExcelService {
         
         // DEBUG: Mostrar estructura de datos
         if (data.length > 0) {
-          this.logger.log(`🔍 Claves de la primera fila (carreras):`, Object.keys(data[0]));
+          this.logger.log(`🔍 Claves de la primera fila (carreras):`, Object.keys(data[0] as any));
           this.logger.log(`🔍 Muestra de datos (primeras 2 filas):`, data.slice(0, 2));
         }
         
@@ -242,7 +242,7 @@ export class ExcelService {
         
         // DEBUG: Mostrar estructura de datos
         if (data.length > 0) {
-          this.logger.log(`🔍 Claves de la primera fila (usuarios):`, Object.keys(data[0]));
+          this.logger.log(`🔍 Claves de la primera fila (usuarios):`, Object.keys(data[0] as any));
           this.logger.log(`🔍 Muestra de datos (primeras 2 filas):`, data.slice(0, 2));
         }
         
@@ -271,7 +271,7 @@ export class ExcelService {
         
         // DEBUG: Mostrar estructura de datos
         if (data.length > 0) {
-          this.logger.log(`🔍 Claves de la primera fila (materias):`, Object.keys(data[0]));
+          this.logger.log(`🔍 Claves de la primera fila (materias):`, Object.keys(data[0] as any));
           this.logger.log(`🔍 Muestra de datos (primeras 2 filas):`, data.slice(0, 2));
         }
         
@@ -300,7 +300,7 @@ export class ExcelService {
         
         // DEBUG: Mostrar estructura de datos
         if (data.length > 0) {
-          this.logger.log(`🔍 Claves de la primera fila (grupos):`, Object.keys(data[0]));
+          this.logger.log(`🔍 Claves de la primera fila (grupos):`, Object.keys(data[0] as any));
           this.logger.log(`🔍 Muestra de datos (primeras 2 filas):`, data.slice(0, 2));
         }
         
