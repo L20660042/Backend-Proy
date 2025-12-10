@@ -1,6 +1,7 @@
-// excel.service.ts - Versión corregida
+// excel.service.ts - Versión corregida con tipos
 import { Injectable, BadRequestException, Logger } from '@nestjs/common';
 import * as XLSX from 'xlsx';
+import { Types } from 'mongoose';
 import { UsersService } from '../users/users.service';
 import { CareersService } from '../careers/careers.service';
 import { SubjectsService } from '../subjects/subjects.service';
@@ -24,6 +25,52 @@ interface ImportResult {
     totalUpdated: number;
   };
   details: Record<string, SheetResult>;
+}
+
+// Interfaces para los documentos
+interface CareerDocument {
+  _id: Types.ObjectId;
+  name: string;
+  code: string;
+  description?: string;
+  duration?: number;
+  active?: boolean;
+  careerId?: string;
+}
+
+interface UserDocument {
+  _id: Types.ObjectId;
+  email: string;
+  fullName: string;
+  role: string;
+  active?: boolean;
+  career?: Types.ObjectId | CareerDocument;
+  careerId?: string;
+}
+
+interface SubjectDocument {
+  _id: Types.ObjectId;
+  name: string;
+  code: string;
+  career?: Types.ObjectId | CareerDocument;
+  teacher?: Types.ObjectId | UserDocument;
+  credits?: number;
+  semester?: number;
+  active?: boolean;
+  careerId?: string;
+}
+
+interface GroupDocument {
+  _id: Types.ObjectId;
+  name: string;
+  code: string;
+  subject: Types.ObjectId | SubjectDocument;
+  teacher?: Types.ObjectId | UserDocument;
+  career?: Types.ObjectId | CareerDocument;
+  students?: Types.ObjectId[] | UserDocument[];
+  schedule?: string;
+  capacity?: number;
+  active?: boolean;
 }
 
 @Injectable()
@@ -135,22 +182,22 @@ export class ExcelService {
   }
 
   /** Extraer documento de respuesta de servicio */
-  private extractDocumentFromResponse(response: any): any {
+  private extractDocumentFromResponse<T = any>(response: any): T | null {
     if (!response) return null;
     
     // Si es documento directo
     if (response._id) {
-      return response;
+      return response as T;
     }
     
     // Si es respuesta con formato {success, data}
     if (response.success && response.data) {
-      return response.data;
+      return response.data as T;
     }
     
     // Si es respuesta con formato {success, data: {data: {...}}}
     if (response.success && response.data && response.data.data) {
-      return response.data.data;
+      return response.data.data as T;
     }
     
     return null;
@@ -301,7 +348,7 @@ export class ExcelService {
 
         // Buscar si ya existe
         const careerResponse = await this.careersService.findByNameOrCode(careerCode);
-        const existingCareer = this.extractDocumentFromResponse(careerResponse);
+        const existingCareer = this.extractDocumentFromResponse<CareerDocument>(careerResponse);
         
         if (existingCareer && existingCareer._id) {
           // Actualizar
@@ -394,7 +441,7 @@ export class ExcelService {
         // Buscar carrera si se especifica
         if (career && career.toString().trim()) {
           const careerResponse = await this.careersService.findByNameOrCode(career.toString());
-          const careerDoc = this.extractDocumentFromResponse(careerResponse);
+          const careerDoc = this.extractDocumentFromResponse<CareerDocument>(careerResponse);
           
           if (careerDoc && careerDoc._id) {
             userData.career = careerDoc._id;
@@ -404,7 +451,7 @@ export class ExcelService {
         }
 
         // Verificar si usuario ya existe
-        const existingUser = await this.usersService.findByEmail(emailStr);
+        const existingUser = await this.usersService.findByEmail(emailStr) as UserDocument;
         
         if (existingUser && existingUser._id) {
           // Actualizar (mantener contraseña existente si no se proporciona)
@@ -460,7 +507,7 @@ export class ExcelService {
 
         // Buscar carrera
         const careerResponse = await this.careersService.findByNameOrCode(career.toString());
-        const careerDoc = this.extractDocumentFromResponse(careerResponse);
+        const careerDoc = this.extractDocumentFromResponse<CareerDocument>(careerResponse);
         
         if (!careerDoc || !careerDoc._id) {
           result.errors.push(`Fila ${rowNumber}: Carrera "${career}" no encontrada`);
@@ -478,7 +525,7 @@ export class ExcelService {
 
         // Buscar si ya existe por código
         const subjectResponse = await this.subjectsService.findByCode(subjectCode);
-        const existingSubject = this.extractDocumentFromResponse(subjectResponse);
+        const existingSubject = this.extractDocumentFromResponse<SubjectDocument>(subjectResponse);
         
         if (existingSubject && existingSubject._id) {
           // Actualizar
@@ -532,25 +579,25 @@ export class ExcelService {
         const groupCode = code ? code.toString().trim() : 
                          `GRP-${this.generateCodeFromName(groupName)}`;
 
-        // Buscar materia por código o nombre
-        let subjectDoc = null;
+        // Buscar materia
+        let subjectDoc: SubjectDocument | null = null;
         
         // Primero buscar por código
         const subjectByCodeResponse = await this.subjectsService.findByCode(subject.toString());
-        subjectDoc = this.extractDocumentFromResponse(subjectByCodeResponse);
+        subjectDoc = this.extractDocumentFromResponse<SubjectDocument>(subjectByCodeResponse);
         
-        // Si no encuentra por código, buscar por nombre
+        // Si no encuentra por código, buscar en todas
         if (!subjectDoc) {
-          // Necesitaríamos un método para buscar por nombre
-          // Por ahora, usar el código como nombre
           const allSubjectsResponse = await this.subjectsService.findAll();
-          const allSubjects = this.extractDocumentFromResponse(allSubjectsResponse);
+          const allSubjects = this.extractDocumentFromResponse<SubjectDocument[]>(allSubjectsResponse);
           
           if (Array.isArray(allSubjects)) {
-            subjectDoc = allSubjects.find((s: any) => 
-              s.name.toLowerCase() === subject.toString().toLowerCase() || 
-              s.code.toLowerCase() === subject.toString().toLowerCase()
-            );
+            const foundSubject = allSubjects.find((s: any) => 
+              (s.name && s.name.toLowerCase() === subject.toString().toLowerCase()) || 
+              (s.code && s.code.toLowerCase() === subject.toString().toLowerCase())
+            ) as SubjectDocument;
+            
+            subjectDoc = foundSubject || null;
           }
         }
 
@@ -570,15 +617,18 @@ export class ExcelService {
         };
 
         // Si la materia tiene carrera, asignarla al grupo
-        if (subjectDoc.career && subjectDoc.career._id) {
-          groupData.career = subjectDoc.career._id;
-        } else if (subjectDoc.careerId) {
-          groupData.career = subjectDoc.careerId;
+        const subjectCareer = subjectDoc as any;
+        if (subjectCareer.career && subjectCareer.career._id) {
+          groupData.career = subjectCareer.career._id;
+        } else if (subjectCareer.careerId) {
+          groupData.career = subjectCareer.careerId;
+        } else if (subjectCareer.career) {
+          groupData.career = subjectCareer.career;
         }
 
         // Buscar profesor por email
         if (teacher && teacher.toString().trim()) {
-          const teacherUser = await this.usersService.findByEmail(teacher.toString());
+          const teacherUser = await this.usersService.findByEmail(teacher.toString()) as UserDocument;
           if (teacherUser && teacherUser._id) {
             groupData.teacher = teacherUser._id;
           } else {
@@ -587,15 +637,26 @@ export class ExcelService {
         }
 
         // Buscar si ya existe el grupo por código
-        const groupResponse = await this.groupsService.findAll();
-        let existingGroup = null;
+        let existingGroup: GroupDocument | null = null;
         
-        if (groupResponse) {
-          // Los grupos no tienen método findByCode, buscar en la lista
-          const allGroups = Array.isArray(groupResponse) ? groupResponse : [];
-          existingGroup = allGroups.find((g: any) => 
+        try {
+          // Obtener todos los grupos
+          const allGroupsResponse = await this.groupsService.findAll();
+          let allGroups: GroupDocument[] = [];
+          
+          if (Array.isArray(allGroupsResponse)) {
+            allGroups = allGroupsResponse as GroupDocument[];
+          } else {
+            allGroups = this.extractDocumentFromResponse<GroupDocument[]>(allGroupsResponse) || [];
+          }
+          
+          // Buscar por código
+          existingGroup = allGroups.find((g: GroupDocument) => 
             g.code && g.code.toLowerCase() === groupCode.toLowerCase()
-          );
+          ) || null;
+
+        } catch (error) {
+          this.logger.warn(`Error buscando grupos: ${error}`);
         }
 
         if (existingGroup && existingGroup._id) {
@@ -611,7 +672,7 @@ export class ExcelService {
         } else {
           // Crear nuevo grupo
           const createResponse = await this.groupsService.create(groupData);
-          const newGroup = this.extractDocumentFromResponse(createResponse);
+          const newGroup = this.extractDocumentFromResponse<GroupDocument>(createResponse);
           
           if (newGroup && newGroup._id) {
             result.created++;
@@ -645,7 +706,7 @@ export class ExcelService {
       const studentIds: string[] = [];
       
       for (const email of studentEmails) {
-        const student = await this.usersService.findByEmail(email);
+        const student = await this.usersService.findByEmail(email) as UserDocument;
         if (student && student._id) {
           studentIds.push(student._id.toString());
           this.logger.log(`👤 Estudiante encontrado: ${email} -> ${student._id}`);
