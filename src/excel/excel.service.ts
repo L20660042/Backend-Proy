@@ -52,6 +52,65 @@ export class ExcelService {
     this.logger.log(`  - AlertsService: ${!!alertsService}`);
   }
 
+  /** ========== FUNCIONES HELPER ========== */
+  
+  /** Normalizar nombres de columnas */
+  private normalizeColumnName(columnName: string): string {
+    if (!columnName) return '';
+    
+    const normalized = columnName.toString().toLowerCase().trim()
+      .replace(/\s+/g, '_')
+      .replace(/[áäà]/g, 'a')
+      .replace(/[éëè]/g, 'e')
+      .replace(/[íïì]/g, 'i')
+      .replace(/[óöò]/g, 'o')
+      .replace(/[úüù]/g, 'u')
+      .replace(/ñ/g, 'n')
+      .replace(/[^a-z0-9_]/g, '');
+    
+    return normalized;
+  }
+
+  /** Mapear fila a nombres estandarizados */
+  private normalizeRow(row: any): any {
+    const normalized: any = {};
+    
+    for (const [key, value] of Object.entries(row)) {
+      const normalizedKey = this.normalizeColumnName(key);
+      normalized[normalizedKey] = value;
+    }
+    
+    return normalized;
+  }
+
+  /** Obtener valor de fila con múltiples posibles nombres de columna */
+  private getRowValue(row: any, possibleKeys: string[]): any {
+    const normalizedRow = this.normalizeRow(row);
+    
+    for (const key of possibleKeys) {
+      const normalizedKey = this.normalizeColumnName(key);
+      if (normalizedRow[normalizedKey] !== undefined && 
+          normalizedRow[normalizedKey] !== null && 
+          normalizedRow[normalizedKey] !== '') {
+        return normalizedRow[normalizedKey];
+      }
+    }
+    return undefined;
+  }
+
+  /** Convertir valor booleano */
+  private parseBoolean(value: any): boolean {
+    if (typeof value === 'boolean') return value;
+    if (typeof value === 'number') return value !== 0;
+    if (typeof value === 'string') {
+      const str = value.toLowerCase().trim();
+      return str === 'true' || str === '1' || str === 'si' || str === 'yes' || str === 'activo' || str === 'sí';
+    }
+    return true; // valor por defecto
+  }
+
+  /** ========== MÉTODO PRINCIPAL ========== */
+
   async importExcel(file: Express.Multer.File): Promise<ImportResult> {
     this.logger.log('📥 ========== INICIO IMPORTACIÓN EXCEL ==========');
     this.logger.log('📥 Archivo recibido en servicio:', {
@@ -91,7 +150,7 @@ export class ExcelService {
           throw new BadRequestException('El archivo no existe en la ruta especificada');
         }
       } catch (error) {
-        this.logger.error('❌ Error leyendo archivo del disco:', error);
+        this.logger.error('❌ Error leyendo archivo del disco:', error.message);
         throw new BadRequestException(`Error leyendo archivo: ${error.message}`);
       }
     } else {
@@ -152,6 +211,12 @@ export class ExcelService {
         const data = XLSX.utils.sheet_to_json(sheet);
         this.logger.log(`📊 Encontradas ${data.length} filas en carreras`);
         
+        // DEBUG: Mostrar estructura de datos
+        if (data.length > 0) {
+          this.logger.log(`🔍 Claves de la primera fila (carreras):`, Object.keys(data[0]));
+          this.logger.log(`🔍 Muestra de datos (primeras 2 filas):`, data.slice(0, 2));
+        }
+        
         if (data.length > 0) {
           result.details['carreras'] = await this.importCareers(data);
           result.summary.processedSheets++;
@@ -174,6 +239,12 @@ export class ExcelService {
         const sheet = workbook.Sheets[usuariosSheetName];
         const data = XLSX.utils.sheet_to_json(sheet);
         this.logger.log(`📊 Encontradas ${data.length} filas en usuarios`);
+        
+        // DEBUG: Mostrar estructura de datos
+        if (data.length > 0) {
+          this.logger.log(`🔍 Claves de la primera fila (usuarios):`, Object.keys(data[0]));
+          this.logger.log(`🔍 Muestra de datos (primeras 2 filas):`, data.slice(0, 2));
+        }
         
         if (data.length > 0) {
           result.details['usuarios'] = await this.importUsers(data);
@@ -198,6 +269,12 @@ export class ExcelService {
         const data = XLSX.utils.sheet_to_json(sheet);
         this.logger.log(`📊 Encontradas ${data.length} filas en materias`);
         
+        // DEBUG: Mostrar estructura de datos
+        if (data.length > 0) {
+          this.logger.log(`🔍 Claves de la primera fila (materias):`, Object.keys(data[0]));
+          this.logger.log(`🔍 Muestra de datos (primeras 2 filas):`, data.slice(0, 2));
+        }
+        
         if (data.length > 0) {
           result.details['materias'] = await this.importSubjects(data);
           result.summary.processedSheets++;
@@ -220,6 +297,12 @@ export class ExcelService {
         const sheet = workbook.Sheets[gruposSheetName];
         const data = XLSX.utils.sheet_to_json(sheet);
         this.logger.log(`📊 Encontradas ${data.length} filas en grupos`);
+        
+        // DEBUG: Mostrar estructura de datos
+        if (data.length > 0) {
+          this.logger.log(`🔍 Claves de la primera fila (grupos):`, Object.keys(data[0]));
+          this.logger.log(`🔍 Muestra de datos (primeras 2 filas):`, data.slice(0, 2));
+        }
         
         if (data.length > 0) {
           result.details['grupos'] = await this.importGroups(data);
@@ -305,19 +388,37 @@ export class ExcelService {
       return result;
     }
     
+    // DEBUG: Mostrar estructura de datos
+    this.logger.log('🔍 Estructura de datos de carreras:', {
+      primeraFila: data[0],
+      claves: Object.keys(data[0] || {}),
+      totalFilas: data.length
+    });
+    
     for (let i = 0; i < data.length; i++) {
       const row = data[i];
       const rowNumber = i + 2;
 
       try {
+        // DEBUG: Mostrar fila actual
+        this.logger.log(`🔍 Fila ${rowNumber} datos crudos:`, row);
+        
+        // Usar la nueva función getRowValue
+        const name = this.getRowValue(row, ['name', 'nombre', 'carrera', 'Name', 'Nombre', 'Carrera']);
+        const code = this.getRowValue(row, ['code', 'codigo', 'código', 'Code', 'Código', 'CODIGO']);
+        const description = this.getRowValue(row, ['description', 'descripcion', 'descripción', 'Description', 'Descripción']);
+        const duration = this.getRowValue(row, ['duration', 'duracion', 'duración', 'Duration', 'Duración']);
+        const active = this.getRowValue(row, ['active', 'activo', 'estado', 'Active', 'Activo', 'Estado']);
+
         // Validar datos requeridos
-        if (!row.name) {
-          result.errors.push(`Fila ${rowNumber}: Nombre de carrera requerido`);
+        if (!name) {
+          result.errors.push(`Fila ${rowNumber}: Nombre de carrera requerido (campo no encontrado)`);
+          this.logger.error(`❌ Fila ${rowNumber}: No se encontró nombre. Claves disponibles:`, Object.keys(row));
           continue;
         }
 
-        const careerName = row.name.toString().trim();
-        const careerCode = row.code ? row.code.toString().trim().toUpperCase() : 
+        const careerName = name.toString().trim();
+        const careerCode = code ? code.toString().trim().toUpperCase() : 
                           this.generateCodeFromName(careerName);
         
         if (!careerName || careerName.length === 0) {
@@ -328,11 +429,13 @@ export class ExcelService {
         const careerData = {
           name: careerName,
           code: careerCode,
-          description: row.description ? row.description.toString().trim() : '',
-          duration: row.duration ? parseInt(row.duration.toString()) || 8 : 8,
+          description: description ? description.toString().trim() : '',
+          duration: duration ? parseInt(duration.toString()) || 8 : 8,
+          active: active !== undefined ? this.parseBoolean(active) : true,
         };
 
         this.logger.log(`📋 Procesando carrera [Fila ${rowNumber}]: ${careerName} (${careerCode})`);
+        this.logger.log(`📋 Datos extraídos:`, careerData);
 
         // Verificar si ya existe
         const existingCareer = await this.findCareerByNameOrCode(careerName, careerCode);
@@ -397,28 +500,50 @@ export class ExcelService {
       return result;
     }
     
+    // DEBUG: Mostrar estructura de datos
+    this.logger.log('🔍 Estructura de datos de usuarios:', {
+      primeraFila: data[0],
+      claves: Object.keys(data[0] || {}),
+      totalFilas: data.length
+    });
+    
     for (let i = 0; i < data.length; i++) {
       const row = data[i];
       const rowNumber = i + 2;
 
       try {
+        // DEBUG: Mostrar fila actual
+        this.logger.log(`🔍 Fila ${rowNumber} datos crudos (usuarios):`, row);
+        
+        // Usar la nueva función getRowValue
+        const email = this.getRowValue(row, ['email', 'correo', 'Email', 'Correo', 'EMAIL']);
+        const role = this.getRowValue(row, ['role', 'rol', 'Role', 'Rol', 'ROL']);
+        const fullName = this.getRowValue(row, ['fullname', 'nombre_completo', 'nombre', 'Nombre', 'name', 'Name']);
+        const firstName = this.getRowValue(row, ['firstname', 'nombre', 'primer_nombre', 'FirstName']);
+        const lastName = this.getRowValue(row, ['lastname', 'apellido', 'apellidos', 'LastName']);
+        const password = this.getRowValue(row, ['password', 'contrasena', 'contraseña', 'Password']);
+        const career = this.getRowValue(row, ['career', 'carrera', 'Career', 'Carrera']);
+        const phone = this.getRowValue(row, ['phone', 'telefono', 'teléfono', 'Phone']);
+        const active = this.getRowValue(row, ['active', 'activo', 'estado', 'Active', 'Activo']);
+
         // Validar datos requeridos
-        if (!row.email) {
+        if (!email) {
           result.errors.push(`Fila ${rowNumber}: Email requerido`);
+          this.logger.error(`❌ Fila ${rowNumber}: No se encontró email. Claves:`, Object.keys(row));
           continue;
         }
 
-        if (!row.role) {
+        if (!role) {
           result.errors.push(`Fila ${rowNumber}: Rol requerido`);
           continue;
         }
 
-        const email = row.email.toString().trim().toLowerCase();
-        const role = row.role.toString().toUpperCase();
+        const emailStr = email.toString().trim().toLowerCase();
+        const roleStr = role.toString().toUpperCase();
         
         // Validar formato de email
-        if (!this.isValidEmail(email)) {
-          result.errors.push(`Fila ${rowNumber}: Email "${email}" no válido`);
+        if (!this.isValidEmail(emailStr)) {
+          result.errors.push(`Fila ${rowNumber}: Email "${emailStr}" no válido`);
           continue;
         }
 
@@ -429,76 +554,82 @@ export class ExcelService {
           'DESARROLLO_ACADEMICO', 'CAPACITACION'
         ];
         
-        if (!validRoles.includes(role)) {
-          result.errors.push(`Fila ${rowNumber}: Rol "${role}" no válido. Roles válidos: ${validRoles.join(', ')}`);
+        if (!validRoles.includes(roleStr)) {
+          result.errors.push(`Fila ${rowNumber}: Rol "${roleStr}" no válido. Roles válidos: ${validRoles.join(', ')}`);
           continue;
         }
 
         // Preparar datos del usuario
         const userData: any = {
-          email: email,
-          role: role,
-          active: row.active !== undefined ? Boolean(row.active) : true,
+          email: emailStr,
+          role: roleStr,
+          active: active !== undefined ? this.parseBoolean(active) : true,
         };
 
         // Manejar nombre
-        if (row.fullName) {
-          userData.fullName = row.fullName.toString().trim();
-        } else if (row.firstName && row.lastName) {
-          userData.fullName = `${row.firstName} ${row.lastName}`.trim();
-          userData.firstName = row.firstName.toString().trim();
-          userData.lastName = row.lastName.toString().trim();
-        } else if (row.name) {
-          userData.fullName = row.name.toString().trim();
+        if (fullName) {
+          userData.fullName = fullName.toString().trim();
+        } else if (firstName && lastName) {
+          userData.fullName = `${firstName} ${lastName}`.trim();
+          userData.firstName = firstName.toString().trim();
+          userData.lastName = lastName.toString().trim();
+        } else if (firstName) {
+          userData.fullName = firstName.toString().trim();
+          userData.firstName = firstName.toString().trim();
         } else {
           // Si no hay nombre, usar parte del email
-          const username = email.split('@')[0];
+          const username = emailStr.split('@')[0];
           userData.fullName = username.charAt(0).toUpperCase() + username.slice(1);
           userData.firstName = username.charAt(0).toUpperCase() + username.slice(1);
         }
 
         // Contraseña
-        if (row.password && row.password.toString().trim()) {
-          userData.password = await hashPassword(row.password.toString());
+        if (password && password.toString().trim()) {
+          userData.password = await hashPassword(password.toString());
         } else {
           // Contraseña por defecto
-          const defaultPassword = `${email.split('@')[0]}123`;
+          const defaultPassword = `${emailStr.split('@')[0]}123`;
           userData.password = await hashPassword(defaultPassword);
-          this.logger.log(`🔑 Contraseña por defecto para ${email}: ${defaultPassword}`);
+          this.logger.log(`🔑 Contraseña por defecto para ${emailStr}: ${defaultPassword}`);
         }
 
         // Campos opcionales
-        if (row.phone) userData.phone = row.phone.toString().trim();
+        if (phone) userData.phone = phone.toString().trim();
         
         // Buscar carrera si se especifica
-        if (row.career && row.career.toString().trim()) {
-          const careerId = await this.findCareerIdentifier(row.career.toString());
+        if (career && career.toString().trim()) {
+          const careerId = await this.findCareerIdentifier(career.toString());
           if (careerId) {
             userData.career = careerId;
-            this.logger.log(`🔗 Usuario ${email} asignado a carrera: ${row.career} -> ${careerId}`);
+            this.logger.log(`🔗 Usuario ${emailStr} asignado a carrera: ${career} -> ${careerId}`);
           } else {
-            result.errors.push(`Fila ${rowNumber}: Carrera "${row.career}" no encontrada para usuario ${email}`);
-            this.logger.warn(`⚠️ Carrera no encontrada: "${row.career}" para usuario ${email}`);
+            result.errors.push(`Fila ${rowNumber}: Carrera "${career}" no encontrada para usuario ${emailStr}`);
+            this.logger.warn(`⚠️ Carrera no encontrada: "${career}" para usuario ${emailStr}`);
           }
         }
 
         // Verificar si usuario ya existe
         try {
-          const existingUser = await this.usersService.findByEmail(email);
+          const existingUser = await this.usersService.findByEmail(emailStr);
           if (existingUser) {
-            result.errors.push(`Fila ${rowNumber}: Email ${email} ya existe`);
-            this.logger.log(`⚠️ Usuario ya existe: ${email}`);
+            result.errors.push(`Fila ${rowNumber}: Email ${emailStr} ya existe`);
+            this.logger.log(`⚠️ Usuario ya existe: ${emailStr}`);
             continue;
           }
         } catch (error) {
           // Si hay error al buscar, continuar (puede que el usuario no exista)
-          this.logger.log(`🔍 Usuario ${email} no encontrado, procediendo a crear`);
+          this.logger.log(`🔍 Usuario ${emailStr} no encontrado, procediendo a crear`);
         }
 
-        this.logger.log(`📋 Procesando usuario [Fila ${rowNumber}]: ${email} (${role})`);
+        this.logger.log(`📋 Procesando usuario [Fila ${rowNumber}]: ${emailStr} (${roleStr})`);
+        this.logger.log(`📋 Datos extraídos:`, {
+          fullName: userData.fullName,
+          email: userData.email,
+          role: userData.role
+        });
 
         // Crear usuario
-        this.logger.log(`🔄 Creando usuario: ${email}`);
+        this.logger.log(`🔄 Creando usuario: ${emailStr}`);
         const createdUser = await this.usersService.create(userData);
         
         if (createdUser) {
@@ -520,14 +651,14 @@ export class ExcelService {
           
           if (userId) {
             result.created++;
-            this.logger.log(`✅ Usuario creado: ${email} (${userData.fullName}) - ID: ${userId}`);
+            this.logger.log(`✅ Usuario creado: ${emailStr} (${userData.fullName}) - ID: ${userId}`);
           } else {
-            result.errors.push(`Fila ${rowNumber}: Error al crear usuario ${email} - Respuesta inválida`);
+            result.errors.push(`Fila ${rowNumber}: Error al crear usuario ${emailStr} - Respuesta inválida`);
             this.logger.error(`❌ Respuesta inválida para usuario:`, createdUser);
           }
         } else {
-          result.errors.push(`Fila ${rowNumber}: Error al crear usuario ${email} - Respuesta vacía`);
-          this.logger.error(`❌ Respuesta vacía para usuario: ${email}`);
+          result.errors.push(`Fila ${rowNumber}: Error al crear usuario ${emailStr} - Respuesta vacía`);
+          this.logger.error(`❌ Respuesta vacía para usuario: ${emailStr}`);
         }
 
       } catch (error: any) {
@@ -551,24 +682,42 @@ export class ExcelService {
       return result;
     }
     
+    // DEBUG: Mostrar estructura de datos
+    this.logger.log('🔍 Estructura de datos de materias:', {
+      primeraFila: data[0],
+      claves: Object.keys(data[0] || {}),
+      totalFilas: data.length
+    });
+    
     for (let i = 0; i < data.length; i++) {
       const row = data[i];
       const rowNumber = i + 2;
 
       try {
+        // DEBUG: Mostrar fila actual
+        this.logger.log(`🔍 Fila ${rowNumber} datos crudos (materias):`, row);
+        
+        // Usar la nueva función getRowValue
+        const name = this.getRowValue(row, ['name', 'nombre', 'materia', 'Name', 'Nombre', 'Materia']);
+        const code = this.getRowValue(row, ['code', 'codigo', 'código', 'Code', 'Código']);
+        const career = this.getRowValue(row, ['career', 'carrera', 'Career', 'Carrera']);
+        const credits = this.getRowValue(row, ['credits', 'creditos', 'créditos', 'Credits', 'Créditos']);
+        const semester = this.getRowValue(row, ['semester', 'semestre', 'Semester', 'Semestre']);
+
         // Validar datos requeridos
-        if (!row.name) {
+        if (!name) {
           result.errors.push(`Fila ${rowNumber}: Nombre de materia requerido`);
+          this.logger.error(`❌ Fila ${rowNumber}: No se encontró nombre de materia. Claves:`, Object.keys(row));
           continue;
         }
 
-        if (!row.career) {
+        if (!career) {
           result.errors.push(`Fila ${rowNumber}: Carrera requerida para materia`);
           continue;
         }
 
-        const subjectName = row.name.toString().trim();
-        const subjectCode = row.code ? row.code.toString().trim().toUpperCase() : 
+        const subjectName = name.toString().trim();
+        const subjectCode = code ? code.toString().trim().toUpperCase() : 
                           this.generateSubjectCode(subjectName);
         
         if (!subjectName || subjectName.length === 0) {
@@ -577,10 +726,10 @@ export class ExcelService {
         }
         
         // Buscar carrera
-        const careerId = await this.findCareerIdentifier(row.career.toString());
+        const careerId = await this.findCareerIdentifier(career.toString());
         if (!careerId) {
-          result.errors.push(`Fila ${rowNumber}: Carrera "${row.career}" no encontrada para materia "${subjectName}"`);
-          this.logger.warn(`⚠️ Carrera no encontrada: "${row.career}" para materia ${subjectName}`);
+          result.errors.push(`Fila ${rowNumber}: Carrera "${career}" no encontrada para materia "${subjectName}"`);
+          this.logger.warn(`⚠️ Carrera no encontrada: "${career}" para materia ${subjectName}`);
           continue;
         }
 
@@ -588,11 +737,12 @@ export class ExcelService {
           name: subjectName,
           code: subjectCode,
           career: careerId,
-          credits: row.credits ? parseInt(row.credits.toString()) || 4 : 4,
-          semester: row.semester ? parseInt(row.semester.toString()) || 1 : 1,
+          credits: credits ? parseInt(credits.toString()) || 4 : 4,
+          semester: semester ? parseInt(semester.toString()) || 1 : 1,
         };
 
         this.logger.log(`📋 Procesando materia [Fila ${rowNumber}]: ${subjectName} (${subjectCode}) para carrera ${careerId}`);
+        this.logger.log(`📋 Datos extraídos:`, subjectData);
 
         // Verificar si ya existe el código
         const existingSubject = await this.findSubjectByCode(subjectCode);
@@ -656,24 +806,45 @@ export class ExcelService {
       return result;
     }
     
+    // DEBUG: Mostrar estructura de datos
+    this.logger.log('🔍 Estructura de datos de grupos:', {
+      primeraFila: data[0],
+      claves: Object.keys(data[0] || {}),
+      totalFilas: data.length
+    });
+    
     for (let i = 0; i < data.length; i++) {
       const row = data[i];
       const rowNumber = i + 2;
 
       try {
+        // DEBUG: Mostrar fila actual
+        this.logger.log(`🔍 Fila ${rowNumber} datos crudos (grupos):`, row);
+        
+        // Usar la nueva función getRowValue
+        const name = this.getRowValue(row, ['name', 'nombre', 'grupo', 'Name', 'Nombre', 'Grupo']);
+        const code = this.getRowValue(row, ['code', 'codigo', 'código', 'Code', 'Código']);
+        const subject = this.getRowValue(row, ['subject', 'materia', 'Subject', 'Materia']);
+        const teacher = this.getRowValue(row, ['teacher', 'profesor', 'docente', 'Teacher', 'Profesor']);
+        const schedule = this.getRowValue(row, ['schedule', 'horario', 'Schedule', 'Horario']);
+        const capacity = this.getRowValue(row, ['capacity', 'capacidad', 'Capacity', 'Capacidad']);
+        const students = this.getRowValue(row, ['students', 'estudiantes', 'alumnos', 'Students', 'Estudiantes']);
+        const active = this.getRowValue(row, ['active', 'activo', 'estado', 'Active', 'Activo']);
+
         // Validar datos requeridos
-        if (!row.name) {
+        if (!name) {
           result.errors.push(`Fila ${rowNumber}: Nombre del grupo requerido`);
+          this.logger.error(`❌ Fila ${rowNumber}: No se encontró nombre de grupo. Claves:`, Object.keys(row));
           continue;
         }
 
-        if (!row.subject) {
+        if (!subject) {
           result.errors.push(`Fila ${rowNumber}: Materia requerida para grupo`);
           continue;
         }
 
-        const groupName = row.name.toString().trim();
-        const groupCode = row.code ? row.code.toString().trim() : 
+        const groupName = name.toString().trim();
+        const groupCode = code ? code.toString().trim() : 
                          `GRP-${this.generateCodeFromName(groupName)}`;
 
         if (!groupName || groupName.length === 0) {
@@ -682,10 +853,10 @@ export class ExcelService {
         }
 
         // Buscar materia
-        const subjectId = await this.findSubjectIdentifier(row.subject.toString());
+        const subjectId = await this.findSubjectIdentifier(subject.toString());
         if (!subjectId) {
-          result.errors.push(`Fila ${rowNumber}: Materia "${row.subject}" no encontrada para grupo "${groupName}"`);
-          this.logger.warn(`⚠️ Materia no encontrada: "${row.subject}" para grupo ${groupName}`);
+          result.errors.push(`Fila ${rowNumber}: Materia "${subject}" no encontrada para grupo "${groupName}"`);
+          this.logger.warn(`⚠️ Materia no encontrada: "${subject}" para grupo ${groupName}`);
           continue;
         }
 
@@ -695,11 +866,11 @@ export class ExcelService {
           const subjectResult = await this.subjectsService.findOne(subjectId);
           
           if (subjectResult) {
-            const subject = subjectResult as any;
-            if (subject.success && subject.data) {
-              careerId = subject.data.careerId || subject.data.career?._id || subject.data.career;
-            } else if (subject._id) {
-              careerId = subject.careerId || subject.career?._id || subject.career;
+            const subjectObj = subjectResult as any;
+            if (subjectObj.success && subjectObj.data) {
+              careerId = subjectObj.data.careerId || subjectObj.data.career?._id || subjectObj.data.career;
+            } else if (subjectObj._id) {
+              careerId = subjectObj.careerId || subjectObj.career?._id || subjectObj.career;
             }
           }
         } catch (error) {
@@ -711,9 +882,9 @@ export class ExcelService {
           name: groupName,
           code: groupCode,
           subject: subjectId,
-          schedule: row.schedule ? row.schedule.toString().trim() : '',
-          capacity: row.capacity ? parseInt(row.capacity.toString()) || 30 : 30,
-          active: row.active !== undefined ? Boolean(row.active) : true,
+          schedule: schedule ? schedule.toString().trim() : '',
+          capacity: capacity ? parseInt(capacity.toString()) || 30 : 30,
+          active: active !== undefined ? this.parseBoolean(active) : true,
         };
 
         // Agregar carrera si se encontró
@@ -723,18 +894,24 @@ export class ExcelService {
         }
 
         // Buscar profesor si se especifica
-        if (row.teacher && row.teacher.toString().trim()) {
-          const teacherId = await this.findUserIdentifier(row.teacher.toString());
+        if (teacher && teacher.toString().trim()) {
+          const teacherId = await this.findUserIdentifier(teacher.toString());
           if (teacherId) {
             groupData.teacher = teacherId;
-            this.logger.log(`👨‍🏫 Profesor asignado al grupo ${groupName}: ${row.teacher} -> ${teacherId}`);
+            this.logger.log(`👨‍🏫 Profesor asignado al grupo ${groupName}: ${teacher} -> ${teacherId}`);
           } else {
-            result.errors.push(`Fila ${rowNumber}: Profesor "${row.teacher}" no encontrado para grupo "${groupName}"`);
-            this.logger.warn(`⚠️ Profesor no encontrado: "${row.teacher}" para grupo ${groupName}`);
+            result.errors.push(`Fila ${rowNumber}: Profesor "${teacher}" no encontrado para grupo "${groupName}"`);
+            this.logger.warn(`⚠️ Profesor no encontrado: "${teacher}" para grupo ${groupName}`);
           }
         }
 
         this.logger.log(`📋 Procesando grupo [Fila ${rowNumber}]: ${groupName} (${groupCode})`);
+        this.logger.log(`📋 Datos extraídos:`, {
+          name: groupName,
+          code: groupCode,
+          subjectId: subjectId,
+          teacher: groupData.teacher || 'No asignado'
+        });
 
         // Crear grupo
         this.logger.log(`🔄 Creando grupo: ${groupName}`);
@@ -762,8 +939,8 @@ export class ExcelService {
           this.logger.log(`✅ Grupo creado: ${groupName} (ID: ${groupId})`);
 
           // Asignar estudiantes si se especifican
-          if (row.students && row.students.toString().trim()) {
-            await this.assignStudentsToGroup(groupId, row.students.toString(), rowNumber, result);
+          if (students && students.toString().trim()) {
+            await this.assignStudentsToGroup(groupId, students.toString(), rowNumber, result);
           }
         } else {
           result.errors.push(`Fila ${rowNumber}: Error al crear grupo "${groupName}" - No se obtuvo ID`);
