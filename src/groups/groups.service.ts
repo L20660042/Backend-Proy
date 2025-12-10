@@ -9,59 +9,79 @@ import { UpdateGroupDto } from './dto/update-group.dto';
 export class GroupsService {
   constructor(@InjectModel(Group.name) private groupModel: Model<GroupDocument>) {}
 
-  /** Crear grupo - CORREGIDO */
-  async create(dto: CreateGroupDto): Promise<GroupDocument> {
-    // Verificar si el código ya existe
+  /** Crear grupo */
+  async create(dto: CreateGroupDto | any): Promise<GroupDocument> {
+    // Verificar si el código ya existe (si se proporciona)
     if (dto.code) {
-      const exists = await this.groupModel.findOne({ code: dto.code });
+      const exists = await this.groupModel.findOne({ 
+        code: { $regex: `^${dto.code}$`, $options: 'i' } 
+      });
       if (exists) throw new BadRequestException('El código de grupo ya existe');
     }
 
     // Verificar si el nombre ya existe para esta materia
     const nameExists = await this.groupModel.findOne({ 
-      name: dto.name, 
+      name: { $regex: `^${dto.name}$`, $options: 'i' }, 
       subject: dto.subject 
     });
-    if (nameExists) throw new BadRequestException('El grupo ya existe para esta materia');
+    
+    if (nameExists) {
+      throw new BadRequestException('Ya existe un grupo con este nombre para la materia');
+    }
 
     const group = new this.groupModel(dto);
     return group.save();
   }
 
-  /** Obtener todos los grupos - MEJORADO */
+  async createSimple(groupData: any): Promise<GroupDocument> {
+    // Método simplificado para ExcelService
+    const group = new this.groupModel(groupData);
+    return group.save();
+  }
+
+  /** Obtener todos los grupos */
   async findAll(): Promise<GroupDocument[]> {
     return this.groupModel
       .find()
-      .populate('teacher', 'firstName lastName email')
+      .populate('teacher', 'firstName lastName email fullName')
       .populate('subject', 'name code')
       .populate('career', 'name code')
-      .populate('students', 'firstName lastName email')
+      .populate('students', 'firstName lastName email fullName')
       .sort({ name: 1 })
       .exec();
   }
 
-  /** Obtener un grupo por ID - MEJORADO */
+  async findAllSimple(): Promise<GroupDocument[]> {
+    // Método simplificado para ExcelService
+    return this.groupModel.find().exec();
+  }
+
+  /** Obtener un grupo por ID */
   async findOne(id: string): Promise<GroupDocument> {
     const group = await this.groupModel
       .findById(id)
-      .populate('teacher', 'firstName lastName email')
+      .populate('teacher', 'firstName lastName email fullName')
       .populate('subject', 'name code')
       .populate('career', 'name code')
-      .populate('students', 'firstName lastName email');
+      .populate('students', 'firstName lastName email fullName');
 
     if (!group) throw new NotFoundException('Grupo no encontrado');
     return group;
   }
 
-  /** Actualizar grupo - CORREGIDO */
-  async update(id: string, dto: UpdateGroupDto): Promise<GroupDocument> {
+  async findOneSimple(id: string): Promise<GroupDocument | null> {
+    return this.groupModel.findById(id);
+  }
+
+  /** Actualizar grupo */
+  async update(id: string, dto: UpdateGroupDto | any): Promise<GroupDocument> {
     const group = await this.groupModel.findById(id);
     if (!group) throw new NotFoundException('Grupo no encontrado');
 
     // Verificar si el código ya existe (si se está actualizando)
     if (dto.code && dto.code !== group.code) {
       const codeExists = await this.groupModel.findOne({ 
-        code: dto.code,
+        code: { $regex: `^${dto.code}$`, $options: 'i' },
         _id: { $ne: id }
       });
       if (codeExists) throw new BadRequestException('El código de grupo ya existe');
@@ -69,6 +89,14 @@ export class GroupsService {
 
     Object.assign(group, dto);
     return group.save();
+  }
+
+  async updateSimple(id: string, updateData: any): Promise<GroupDocument | null> {
+    return this.groupModel.findByIdAndUpdate(
+      id, 
+      updateData, 
+      { new: true }
+    ).exec();
   }
 
   /** Activar / desactivar grupo */
@@ -81,7 +109,7 @@ export class GroupsService {
   }
 
   /** Eliminar grupo */
-  async delete(id: string): Promise<any> {
+  async delete(id: string): Promise<GroupDocument | null> {
     return this.groupModel.findByIdAndDelete(id);
   }
 
@@ -90,23 +118,55 @@ export class GroupsService {
     const group = await this.groupModel.findById(groupId);
     if (!group) throw new NotFoundException('Grupo no encontrado');
 
-    if (!group.students) group.students = [];
+    // Convertir studentIds a ObjectId
+    const objectIds = studentIds
+      .filter(id => Types.ObjectId.isValid(id))
+      .map(id => new Types.ObjectId(id));
 
-    const newStudentIds = studentIds.map((id) => new Types.ObjectId(id));
+    // Agregar estudiantes únicos
+    const existingIds = group.students ? group.students.map(id => id.toString()) : [];
+    const newIds = objectIds
+      .filter(id => !existingIds.includes(id.toString()))
+      .map(id => id);
 
-    const allStudents = [...group.students.map((id) => id.toString()), ...studentIds];
-    const uniqueStudents = [...new Set(allStudents)].map((id) => new Types.ObjectId(id));
+    if (group.students) {
+      group.students = [...group.students, ...newIds];
+    } else {
+      group.students = newIds;
+    }
 
-    group.students = uniqueStudents;
     return group.save();
   }
 
+  /** Remover estudiantes del grupo */
   async removeStudents(groupId: string, studentIds: string[]): Promise<GroupDocument> {
     const group = await this.groupModel.findById(groupId);
     if (!group) throw new NotFoundException('Grupo no encontrado');
+    
     if (!group.students) return group;
 
-    group.students = group.students.filter((id) => !studentIds.includes(id.toString()));
+    // Convertir a strings para comparar
+    const studentIdsStr = studentIds.map(id => id.toString());
+    
+    group.students = group.students.filter(
+      studentId => !studentIdsStr.includes(studentId.toString())
+    );
+    
     return group.save();
   }
+
+  /** Buscar grupo por código */
+  async findByCode(code: string): Promise<GroupDocument | null> {
+    return this.groupModel.findOne({ 
+      code: { $regex: `^${code}$`, $options: 'i' } 
+    }).exec();
+  }
+
+  /** Buscar grupos por materia */
+  async findBySubject(subjectId: string): Promise<GroupDocument[]> {
+    return this.groupModel.find({ 
+      subject: new Types.ObjectId(subjectId) 
+    }).exec();
+  }
+  
 }

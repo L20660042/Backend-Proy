@@ -14,11 +14,16 @@ export class UsersService {
   ) {}
 
   // ======================================================
-  // Crear usuario
+  // Crear usuario (método completo para ExcelService)
   // ======================================================
-  async create(dto: CreateUserDto): Promise<UserDocument> {
-    const exists = await this.userModel.findOne({ email: dto.email.toLowerCase() });
-    if (exists) throw new BadRequestException('El usuario ya existe');
+  async create(dto: CreateUserDto | any): Promise<UserDocument> {
+    const exists = await this.userModel.findOne({ 
+      email: dto.email.toLowerCase() 
+    });
+    
+    if (exists) {
+      throw new BadRequestException(`El email ${dto.email} ya está registrado`);
+    }
 
     const hashed = await bcrypt.hash(dto.password, 10);
 
@@ -26,6 +31,24 @@ export class UsersService {
       ...dto,
       email: dto.email.toLowerCase(),
       password: hashed,
+      active: dto.active !== undefined ? dto.active : true,
+    });
+
+    return user.save();
+  }
+
+  // ======================================================
+  // Crear usuario simple (sin validaciones adicionales para Excel)
+  // ======================================================
+  async createSimple(userData: any): Promise<UserDocument> {
+    // Hashear contraseña si no viene hasheada
+    if (userData.password && !userData.password.startsWith('$2a$')) {
+      userData.password = await bcrypt.hash(userData.password, 10);
+    }
+
+    const user = new this.userModel({
+      ...userData,
+      email: userData.email.toLowerCase(),
     });
 
     return user.save();
@@ -34,10 +57,10 @@ export class UsersService {
   // ======================================================
   // Obtener todos con filtros + RLS
   // ======================================================
-  async findAll(currentUser): Promise<UserDocument[]> {
+  async findAll(currentUser?: any): Promise<UserDocument[]> {
     const filter: any = {};
 
-    if (currentUser.role !== 'SUPERADMIN' && currentUser.role !== 'ADMIN') {
+    if (currentUser && currentUser.role !== 'SUPERADMIN' && currentUser.role !== 'ADMIN') {
       if (currentUser.career) filter.career = currentUser.career;
     }
 
@@ -46,6 +69,13 @@ export class UsersService {
       .populate('career subjects groups')
       .sort({ createdAt: -1 })
       .exec();
+  }
+
+  // ======================================================
+  // Obtener todos (método simple para ExcelService)
+  // ======================================================
+  async findAllSimple(): Promise<UserDocument[]> {
+    return this.userModel.find().exec();
   }
 
   // ======================================================
@@ -62,30 +92,33 @@ export class UsersService {
     return user;
   }
 
+  async findOneSimple(id: string): Promise<UserDocument | null> {
+    return this.userModel.findById(id).exec();
+  }
+
   // ======================================================
   // Búsqueda por Email (ExcelService, Auth)
   // ======================================================
   async findByEmail(email: string): Promise<UserDocument | null> {
-    return this.userModel.findOne({ email: email.toLowerCase() }).exec();
+    return this.userModel.findOne({ 
+      email: email.toLowerCase() 
+    }).exec();
   }
 
   // ======================================================
-  // Actualizar usuario - VERSIÓN MEJORADA
+  // Actualizar usuario
   // ======================================================
-  async update(id: string, dto: UpdateUserDto): Promise<UserDocument> {
+  async update(id: string, dto: UpdateUserDto | any): Promise<UserDocument> {
     const user = await this.userModel.findById(id);
     if (!user) throw new NotFoundException('Usuario no encontrado');
 
-    // Clonar DTO para no modificar el original
     const updateData = { ...dto };
 
-    // Solo encriptar la contraseña si se proporciona y no está vacía
+    // Si viene contraseña, encriptarla
     if (updateData.password && updateData.password.trim() !== '') {
       updateData.password = await bcrypt.hash(updateData.password, 10);
     } else {
-      // Si no se proporciona contraseña, mantener la existente
-      // IMPORTANTE: No eliminamos la propiedad, la establecemos como la existente
-      updateData.password = user.password;
+      delete updateData.password; // No actualizar contraseña
     }
 
     // Convertir email a minúsculas si se proporciona
@@ -93,14 +126,16 @@ export class UsersService {
       updateData.email = updateData.email.toLowerCase();
     }
 
-    // Actualizar solo los campos proporcionados (no undefined)
-    Object.keys(updateData).forEach(key => {
-      if (updateData[key] !== undefined) {
-        user[key] = updateData[key];
-      }
-    });
-
+    Object.assign(user, updateData);
     return user.save();
+  }
+
+  async updateSimple(id: string, updateData: any): Promise<UserDocument | null> {
+    return this.userModel.findByIdAndUpdate(
+      id, 
+      updateData, 
+      { new: true }
+    ).exec();
   }
 
   // ======================================================
@@ -115,9 +150,28 @@ export class UsersService {
   }
 
   // ======================================================
-  // Eliminar usuario (soft delete si deseas)
+  // Eliminar usuario
   // ======================================================
-  async delete(id: string) {
+  async delete(id: string): Promise<UserDocument | null> {
     return this.userModel.findByIdAndDelete(id);
+  }
+
+  // ======================================================
+  // Buscar por email (para ExcelService)
+  // ======================================================
+  async findUserByEmail(email: string): Promise<UserDocument | null> {
+    return this.userModel.findOne({ 
+      email: email.toLowerCase() 
+    }).exec();
+  }
+
+  // ======================================================
+  // Verificar si email existe
+  // ======================================================
+  async emailExists(email: string): Promise<boolean> {
+    const count = await this.userModel.countDocuments({ 
+      email: email.toLowerCase() 
+    });
+    return count > 0;
   }
 }

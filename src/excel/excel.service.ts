@@ -1,18 +1,15 @@
-import { Injectable, BadRequestException, Logger, NotFoundException } from '@nestjs/common';
+// excel.service.ts - Versión corregida
+import { Injectable, BadRequestException, Logger } from '@nestjs/common';
 import * as XLSX from 'xlsx';
-import { Types } from 'mongoose';
 import { UsersService } from '../users/users.service';
 import { CareersService } from '../careers/careers.service';
 import { SubjectsService } from '../subjects/subjects.service';
 import { GroupsService } from '../groups/groups.service';
-import { TutoriaService } from '../tutoria/tutoria.service';
-import { CapacitacionService } from '../capacitacion/capacitacion.service';
-import { AlertsService } from '../alerts/alerts.service';
 import { hashPassword } from '../common/utils';
 
-// Definir tipos para los resultados
 interface SheetResult {
   created: number;
+  updated: number;
   errors: string[];
 }
 
@@ -24,6 +21,7 @@ interface ImportResult {
     success: boolean;
     message: string;
     totalCreated: number;
+    totalUpdated: number;
   };
   details: Record<string, SheetResult>;
 }
@@ -37,49 +35,28 @@ export class ExcelService {
     private readonly careersService: CareersService,
     private readonly subjectsService: SubjectsService,
     private readonly groupsService: GroupsService,
-    private readonly tutoriaService: TutoriaService,
-    private readonly capacitacionService: CapacitacionService,
-    private readonly alertsService: AlertsService,
   ) {
     this.logger.log('✅ ExcelService inicializado correctamente');
-    this.logger.log('📊 Servicios inyectados:');
-    this.logger.log(`  - UsersService: ${!!usersService}`);
-    this.logger.log(`  - CareersService: ${!!careersService}`);
-    this.logger.log(`  - SubjectsService: ${!!subjectsService}`);
-    this.logger.log(`  - GroupsService: ${!!groupsService}`);
-    this.logger.log(`  - TutoriaService: ${!!tutoriaService}`);
-    this.logger.log(`  - CapacitacionService: ${!!capacitacionService}`);
-    this.logger.log(`  - AlertsService: ${!!alertsService}`);
   }
 
-  /** ========== FUNCIONES HELPER ========== */
-  
   /** Normalizar nombres de columnas */
   private normalizeColumnName(columnName: string): string {
     if (!columnName) return '';
     
-    const normalized = columnName.toString().toLowerCase().trim()
+    return columnName.toString().toLowerCase().trim()
       .replace(/\s+/g, '_')
-      .replace(/[áäà]/g, 'a')
-      .replace(/[éëè]/g, 'e')
-      .replace(/[íïì]/g, 'i')
-      .replace(/[óöò]/g, 'o')
-      .replace(/[úüù]/g, 'u')
+      .replace(/[áäà]/g, 'a').replace(/[éëè]/g, 'e').replace(/[íïì]/g, 'i')
+      .replace(/[óöò]/g, 'o').replace(/[úüù]/g, 'u')
       .replace(/ñ/g, 'n')
       .replace(/[^a-z0-9_]/g, '');
-    
-    return normalized;
   }
 
-  /** Mapear fila a nombres estandarizados */
+  /** Normalizar fila */
   private normalizeRow(row: any): any {
     const normalized: any = {};
-    
     for (const [key, value] of Object.entries(row)) {
-      const normalizedKey = this.normalizeColumnName(key);
-      normalized[normalizedKey] = value;
+      normalized[this.normalizeColumnName(key)] = value;
     }
-    
     return normalized;
   }
 
@@ -106,84 +83,109 @@ export class ExcelService {
       const str = value.toLowerCase().trim();
       return str === 'true' || str === '1' || str === 'si' || str === 'yes' || str === 'activo' || str === 'sí';
     }
-    return true; // valor por defecto
+    return true;
   }
 
-  /** ========== MÉTODO PRINCIPAL ========== */
+  /** Validar email */
+  private isValidEmail(email: string): boolean {
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    return emailRegex.test(email);
+  }
 
+  /** Generar código desde nombre */
+  private generateCodeFromName(name: string): string {
+    const words = name.split(' ').filter(w => w.length > 0);
+    if (words.length >= 2) {
+      return words.map(w => w.charAt(0)).join('').toUpperCase();
+    }
+    return name.substring(0, 3).toUpperCase();
+  }
+
+  /** Generar código de materia */
+  private generateSubjectCode(name: string): string {
+    const words = name.split(' ').filter(w => w.length > 0);
+    if (words.length >= 2) {
+      return words.map(w => w.charAt(0)).join('').toUpperCase().substring(0, 4);
+    }
+    return name.substring(0, 4).toUpperCase();
+  }
+
+  /** Extraer ID de respuesta de servicio */
+  private extractIdFromResponse(response: any): string | null {
+    if (!response) return null;
+    
+    // Si es documento directo
+    if (response._id) {
+      return response._id.toString();
+    }
+    
+    // Si es respuesta con formato {success, data}
+    if (response.success && response.data) {
+      if (response.data._id) {
+        return response.data._id.toString();
+      }
+    }
+    
+    // Si es respuesta con formato {success, data: {data: {...}}}
+    if (response.success && response.data && response.data.data && response.data.data._id) {
+      return response.data.data._id.toString();
+    }
+    
+    return null;
+  }
+
+  /** Extraer documento de respuesta de servicio */
+  private extractDocumentFromResponse(response: any): any {
+    if (!response) return null;
+    
+    // Si es documento directo
+    if (response._id) {
+      return response;
+    }
+    
+    // Si es respuesta con formato {success, data}
+    if (response.success && response.data) {
+      return response.data;
+    }
+    
+    // Si es respuesta con formato {success, data: {data: {...}}}
+    if (response.success && response.data && response.data.data) {
+      return response.data.data;
+    }
+    
+    return null;
+  }
+
+  /** Método principal */
   async importExcel(file: Express.Multer.File): Promise<ImportResult> {
     this.logger.log('📥 ========== INICIO IMPORTACIÓN EXCEL ==========');
-    this.logger.log('📥 Archivo recibido en servicio:', {
-      originalname: file?.originalname,
-      size: file?.size ? `${(file.size / 1024 / 1024).toFixed(2)} MB` : 'N/A',
-      mimetype: file?.mimetype,
-      bufferLength: file?.buffer?.length || 0,
-      path: file?.path || 'N/A'
-    });
-
+    
     if (!file) {
-      this.logger.error('❌ Archivo no proporcionado');
       throw new BadRequestException('Archivo Excel no proporcionado');
     }
 
-    // Validar que tenemos buffer o path
-    if ((!file.buffer || file.buffer.length === 0) && !file.path) {
-      this.logger.error('❌ Archivo sin contenido (sin buffer ni path)');
-      throw new BadRequestException('El archivo está vacío o no se pudo leer');
-    }
-
     let fileBuffer: Buffer;
-    
-    // Si tenemos buffer, usarlo
     if (file.buffer && file.buffer.length > 0) {
       fileBuffer = file.buffer;
-      this.logger.log(`✅ Usando buffer existente: ${fileBuffer.length} bytes`);
-    } 
-    // Si no hay buffer pero hay path, leer del disco
-    else if (file.path) {
-      try {
-        const fs = await import('fs');
-        if (fs.existsSync(file.path)) {
-          fileBuffer = fs.readFileSync(file.path);
-          this.logger.log(`✅ Archivo leído del disco: ${fileBuffer.length} bytes`);
-        } else {
-          throw new BadRequestException('El archivo no existe en la ruta especificada');
-        }
-      } catch (error) {
-        this.logger.error('❌ Error leyendo archivo del disco:', error.message);
-        throw new BadRequestException(`Error leyendo archivo: ${error.message}`);
+    } else if (file.path) {
+      const fs = await import('fs');
+      if (fs.existsSync(file.path)) {
+        fileBuffer = fs.readFileSync(file.path);
+      } else {
+        throw new BadRequestException('El archivo no existe');
       }
     } else {
       throw new BadRequestException('No se pudo obtener contenido del archivo');
     }
 
-    // Validar formato del archivo
-    const fileExtension = file.originalname.split('.').pop()?.toLowerCase();
-    const allowedExtensions = ['xlsx', 'xls', 'csv'];
-    
-    if (!fileExtension || !allowedExtensions.includes(fileExtension)) {
-      this.logger.error(`❌ Formato no permitido: ${fileExtension}`);
-      throw new BadRequestException(
-        `Formato de archivo no soportado. Formatos permitidos: ${allowedExtensions.join(', ')}`,
-      );
-    }
-
-    // Leer el archivo Excel
-    let workbook: XLSX.WorkBook;
-    try {
-      workbook = XLSX.read(fileBuffer, { 
-        type: 'buffer',
-        cellDates: true,
-        cellNF: false,
-        cellText: false,
-        raw: false
-      });
-      this.logger.log(`📊 Libro Excel cargado: ${workbook.SheetNames.length} hojas`);
-      this.logger.log(`📊 Hojas disponibles: ${workbook.SheetNames.join(', ')}`);
-    } catch (error: any) {
-      this.logger.error('❌ Error leyendo archivo Excel:', error.message);
-      throw new BadRequestException(`Error leyendo archivo Excel: ${error.message}`);
-    }
+    // Leer Excel
+    const workbook = XLSX.read(fileBuffer, { 
+      type: 'buffer',
+      cellDates: true,
+      cellNF: false,
+      cellText: false,
+      raw: false
+    });
 
     const result: ImportResult = {
       summary: {
@@ -192,239 +194,102 @@ export class ExcelService {
         errors: [] as string[],
         success: false,
         message: '',
-        totalCreated: 0
+        totalCreated: 0,
+        totalUpdated: 0
       },
       details: {},
     };
 
     try {
-      // IMPORTAR EN ORDEN: Carreras -> Usuarios -> Materias -> Grupos
-      
-      // 1. Primero procesar carreras (si existen)
-      const carrerasSheetName = workbook.SheetNames.find(name => 
-        ['carreras', 'careers'].includes(name.toLowerCase().trim())
-      );
-      
-      if (carrerasSheetName) {
-        this.logger.log(`🔄 Procesando carreras desde hoja: "${carrerasSheetName}"`);
-        const sheet = workbook.Sheets[carrerasSheetName];
-        const data = XLSX.utils.sheet_to_json(sheet);
-        this.logger.log(`📊 Encontradas ${data.length} filas en carreras`);
+      // Procesar en orden: carreras -> usuarios -> materias -> grupos
+      const sheetsToProcess = [
+        { name: 'carreras', aliases: ['careers'], handler: this.importCareers.bind(this) },
+        { name: 'usuarios', aliases: ['users'], handler: this.importUsers.bind(this) },
+        { name: 'materias', aliases: ['subjects'], handler: this.importSubjects.bind(this) },
+        { name: 'grupos', aliases: ['groups'], handler: this.importGroups.bind(this) },
+      ];
+
+      for (const sheet of sheetsToProcess) {
+        const sheetName = workbook.SheetNames.find(name => 
+          [sheet.name, ...sheet.aliases].includes(name.toLowerCase().trim())
+        );
         
-        // DEBUG: Mostrar estructura de datos
-        if (data.length > 0) {
-          this.logger.log(`🔍 Claves de la primera fila (carreras):`, Object.keys(data[0] as any));
-          this.logger.log(`🔍 Muestra de datos (primeras 2 filas):`, data.slice(0, 2));
-        }
-        
-        if (data.length > 0) {
-          result.details['carreras'] = await this.importCareers(data);
-          result.summary.processedSheets++;
+        if (sheetName) {
+          this.logger.log(`🔄 Procesando ${sheet.name} desde: "${sheetName}"`);
+          const sheetData = workbook.Sheets[sheetName];
+          const data = XLSX.utils.sheet_to_json(sheetData);
+          
+          if (data.length > 0) {
+            result.details[sheet.name] = await sheet.handler(data);
+            result.summary.processedSheets++;
+          } else {
+            result.details[sheet.name] = { created: 0, updated: 0, errors: ['Hoja vacía'] };
+          }
         } else {
-          this.logger.warn('⚠️ Hoja de carreras está vacía');
-          result.details['carreras'] = { created: 0, errors: ['Hoja vacía'] };
+          result.summary.errors.push(`No se encontró hoja de ${sheet.name}`);
+          result.details[sheet.name] = { created: 0, updated: 0, errors: [`Hoja no encontrada`] };
         }
-      } else {
-        this.logger.warn('⚠️ No se encontró hoja de carreras.');
-        result.summary.errors.push('No se encontró hoja de carreras');
       }
 
-      // 2. Luego usuarios
-      const usuariosSheetName = workbook.SheetNames.find(name => 
-        ['usuarios', 'users'].includes(name.toLowerCase().trim())
-      );
-      
-      if (usuariosSheetName) {
-        this.logger.log(`🔄 Procesando usuarios desde hoja: "${usuariosSheetName}"`);
-        const sheet = workbook.Sheets[usuariosSheetName];
-        const data = XLSX.utils.sheet_to_json(sheet);
-        this.logger.log(`📊 Encontradas ${data.length} filas en usuarios`);
-        
-        // DEBUG: Mostrar estructura de datos
-        if (data.length > 0) {
-          this.logger.log(`🔍 Claves de la primera fila (usuarios):`, Object.keys(data[0] as any));
-          this.logger.log(`🔍 Muestra de datos (primeras 2 filas):`, data.slice(0, 2));
-        }
-        
-        if (data.length > 0) {
-          result.details['usuarios'] = await this.importUsers(data);
-          result.summary.processedSheets++;
-        } else {
-          this.logger.warn('⚠️ Hoja de usuarios está vacía');
-          result.details['usuarios'] = { created: 0, errors: ['Hoja vacía'] };
-        }
-      } else {
-        this.logger.warn('⚠️ No se encontró hoja de usuarios.');
-        result.summary.errors.push('No se encontró hoja de usuarios');
+      // Calcular totales
+      let totalCreated = 0;
+      let totalUpdated = 0;
+      let totalErrors = 0;
+
+      for (const sheetResult of Object.values(result.details)) {
+        totalCreated += sheetResult.created || 0;
+        totalUpdated += sheetResult.updated || 0;
+        totalErrors += sheetResult.errors?.length || 0;
       }
 
-      // 3. Luego materias
-      const materiasSheetName = workbook.SheetNames.find(name => 
-        ['materias', 'subjects', 'materia', 'subject'].includes(name.toLowerCase().trim())
-      );
+      totalErrors += result.summary.errors.length;
+
+      result.summary.totalCreated = totalCreated;
+      result.summary.totalUpdated = totalUpdated;
+      result.summary.success = totalErrors === 0 && (totalCreated > 0 || totalUpdated > 0);
       
-      if (materiasSheetName) {
-        this.logger.log(`🔄 Procesando materias desde hoja: "${materiasSheetName}"`);
-        const sheet = workbook.Sheets[materiasSheetName];
-        const data = XLSX.utils.sheet_to_json(sheet);
-        this.logger.log(`📊 Encontradas ${data.length} filas en materias`);
-        
-        // DEBUG: Mostrar estructura de datos
-        if (data.length > 0) {
-          this.logger.log(`🔍 Claves de la primera fila (materias):`, Object.keys(data[0] as any));
-          this.logger.log(`🔍 Muestra de datos (primeras 2 filas):`, data.slice(0, 2));
-        }
-        
-        if (data.length > 0) {
-          result.details['materias'] = await this.importSubjects(data);
-          result.summary.processedSheets++;
-        } else {
-          this.logger.warn('⚠️ Hoja de materias está vacía');
-          result.details['materias'] = { created: 0, errors: ['Hoja vacía'] };
-        }
+      if (result.summary.success) {
+        result.summary.message = `✅ Importación exitosa. ${totalCreated} creados, ${totalUpdated} actualizados.`;
+      } else if (totalCreated > 0 || totalUpdated > 0) {
+        result.summary.message = `⚠️ Importación con advertencias. ${totalCreated} creados, ${totalUpdated} actualizados, ${totalErrors} errores.`;
       } else {
-        this.logger.warn('⚠️ No se encontró hoja de materias.');
-        result.summary.errors.push('No se encontró hoja de materias');
+        result.summary.message = `❌ No se crearon registros. ${totalErrors} errores encontrados.`;
       }
 
-      // 4. Finalmente grupos
-      const gruposSheetName = workbook.SheetNames.find(name => 
-        ['grupos', 'groups', 'grupo', 'group'].includes(name.toLowerCase().trim())
-      );
-      
-      if (gruposSheetName) {
-        this.logger.log(`🔄 Procesando grupos desde hoja: "${gruposSheetName}"`);
-        const sheet = workbook.Sheets[gruposSheetName];
-        const data = XLSX.utils.sheet_to_json(sheet);
-        this.logger.log(`📊 Encontradas ${data.length} filas en grupos`);
-        
-        // DEBUG: Mostrar estructura de datos
-        if (data.length > 0) {
-          this.logger.log(`🔍 Claves de la primera fila (grupos):`, Object.keys(data[0] as any));
-          this.logger.log(`🔍 Muestra de datos (primeras 2 filas):`, data.slice(0, 2));
-        }
-        
-        if (data.length > 0) {
-          result.details['grupos'] = await this.importGroups(data);
-          result.summary.processedSheets++;
-        } else {
-          this.logger.warn('⚠️ Hoja de grupos está vacía');
-          result.details['grupos'] = { created: 0, errors: ['Hoja vacía'] };
-        }
-      } else {
-        this.logger.warn('⚠️ No se encontró hoja de grupos.');
-        result.summary.errors.push('No se encontró hoja de grupos');
-      }
+      this.logger.log('📊 ========== RESUMEN IMPORTACIÓN ==========');
+      this.logger.log(`📊 Total creados: ${totalCreated}, actualizados: ${totalUpdated}, errores: ${totalErrors}`);
 
-      // Procesar otras hojas opcionales
-      const processedSheets = ['carreras', 'usuarios', 'materias', 'grupos', 'careers', 'users', 'subjects', 'groups'];
-      
-      for (const sheetName of workbook.SheetNames) {
-        const normalizedSheetName = sheetName.toLowerCase().trim();
-        
-        // Si no es una hoja ya procesada, mostrar advertencia
-        if (!processedSheets.includes(normalizedSheetName)) {
-          this.logger.warn(`⚠️ Hoja "${sheetName}" ignorada - no reconocida para importación`);
-        }
-      }
+      return result;
 
     } catch (error: any) {
       this.logger.error('❌ Error general en importación:', error.message);
-      this.logger.error(error.stack);
-      result.summary.errors.push(`Error general: ${error.message}`);
+      throw new BadRequestException(`Error en importación: ${error.message}`);
     }
-
-    // Calcular totales
-    const totalCreated = Object.values(result.details).reduce((sum: number, sheet: SheetResult) => 
-      sum + (sheet.created || 0), 0);
-    
-    const totalErrors = Object.values(result.details).reduce((sum: number, sheet: SheetResult) => 
-      sum + (sheet.errors?.length || 0), 0) + result.summary.errors.length;
-    
-    result.summary.totalCreated = totalCreated;
-    result.summary.success = totalErrors === 0 && totalCreated > 0;
-    
-    if (result.summary.success) {
-      result.summary.message = `✅ Importación completada exitosamente. ${totalCreated} registros creados.`;
-    } else if (totalCreated > 0) {
-      result.summary.message = `⚠️ Importación completada con advertencias. ${totalCreated} registros creados, ${totalErrors} errores.`;
-    } else {
-      result.summary.message = `❌ No se crearon registros. ${totalErrors} errores encontrados.`;
-    }
-
-    this.logger.log('📊 ========== RESUMEN IMPORTACIÓN ==========');
-    this.logger.log(`📊 Hojas procesadas: ${result.summary.processedSheets}/${result.summary.totalSheets}`);
-    this.logger.log(`📊 Registros creados: ${totalCreated}`);
-    this.logger.log(`📊 Errores totales: ${totalErrors}`);
-    
-    for (const [sheetName, sheetResult] of Object.entries(result.details)) {
-      this.logger.log(`📊 ${sheetName}: ${sheetResult.created} creados, ${sheetResult.errors?.length || 0} errores`);
-      if (sheetResult.errors && sheetResult.errors.length > 0) {
-        sheetResult.errors.forEach((error, idx) => {
-          this.logger.log(`    ${idx + 1}. ${error}`);
-        });
-      }
-    }
-    
-    if (result.summary.errors.length > 0) {
-      this.logger.log('📊 Errores generales:');
-      result.summary.errors.forEach((error, idx) => {
-        this.logger.log(`    ${idx + 1}. ${error}`);
-      });
-    }
-    
-    this.logger.log('✅ ========== FIN IMPORTACIÓN EXCEL ==========');
-
-    return result;
   }
 
-  /** ========== IMPORTAR CARRERAS ========== */
+  /** Importar carreras */
   private async importCareers(data: any[]): Promise<SheetResult> {
-    this.logger.log(`📥 Importando ${data.length} carreras`);
-    const result: SheetResult = { created: 0, errors: [] };
-    
-    if (data.length === 0) {
-      result.errors.push('No hay datos para procesar');
-      return result;
-    }
-    
-    // DEBUG: Mostrar estructura de datos
-    this.logger.log('🔍 Estructura de datos de carreras:', {
-      primeraFila: data[0],
-      claves: Object.keys(data[0] || {}),
-      totalFilas: data.length
-    });
+    const result: SheetResult = { created: 0, updated: 0, errors: [] };
     
     for (let i = 0; i < data.length; i++) {
       const row = data[i];
       const rowNumber = i + 2;
 
       try {
-        // DEBUG: Mostrar fila actual
-        this.logger.log(`🔍 Fila ${rowNumber} datos crudos:`, row);
-        
-        // Usar la nueva función getRowValue
-        const name = this.getRowValue(row, ['name', 'nombre', 'carrera', 'Name', 'Nombre', 'Carrera']);
-        const code = this.getRowValue(row, ['code', 'codigo', 'código', 'Code', 'Código', 'CODIGO']);
-        const description = this.getRowValue(row, ['description', 'descripcion', 'descripción', 'Description', 'Descripción']);
-        const duration = this.getRowValue(row, ['duration', 'duracion', 'duración', 'Duration', 'Duración']);
-        const active = this.getRowValue(row, ['active', 'activo', 'estado', 'Active', 'Activo', 'Estado']);
+        const name = this.getRowValue(row, ['name', 'nombre', 'carrera']);
+        const code = this.getRowValue(row, ['code', 'codigo', 'código']);
+        const description = this.getRowValue(row, ['description', 'descripcion', 'descripción']);
+        const duration = this.getRowValue(row, ['duration', 'duracion', 'duración']);
+        const active = this.getRowValue(row, ['active', 'activo', 'estado']);
 
-        // Validar datos requeridos
         if (!name) {
-          result.errors.push(`Fila ${rowNumber}: Nombre de carrera requerido (campo no encontrado)`);
-          this.logger.error(`❌ Fila ${rowNumber}: No se encontró nombre. Claves disponibles:`, Object.keys(row));
+          result.errors.push(`Fila ${rowNumber}: Nombre de carrera requerido`);
           continue;
         }
 
         const careerName = name.toString().trim();
         const careerCode = code ? code.toString().trim().toUpperCase() : 
                           this.generateCodeFromName(careerName);
-        
-        if (!careerName || careerName.length === 0) {
-          result.errors.push(`Fila ${rowNumber}: Nombre de carrera vacío`);
-          continue;
-        }
 
         const careerData = {
           name: careerName,
@@ -434,102 +299,52 @@ export class ExcelService {
           active: active !== undefined ? this.parseBoolean(active) : true,
         };
 
-        this.logger.log(`📋 Procesando carrera [Fila ${rowNumber}]: ${careerName} (${careerCode})`);
-        this.logger.log(`📋 Datos extraídos:`, careerData);
-
-        // Verificar si ya existe
-        const existingCareer = await this.findCareerByNameOrCode(careerName, careerCode);
-        if (existingCareer) {
-          result.errors.push(`Fila ${rowNumber}: Carrera "${careerName}" ya existe`);
-          this.logger.log(`⚠️ Carrera ya existe: ${careerName}`);
-          continue;
-        }
-
-        // Crear carrera
-        this.logger.log(`🔄 Creando carrera: ${careerName}`);
-        const createResult = await this.careersService.create(careerData);
+        // Buscar si ya existe
+        const careerResponse = await this.careersService.findByNameOrCode(careerCode);
+        const existingCareer = this.extractDocumentFromResponse(careerResponse);
         
-        if (createResult) {
-          // Verificar diferentes estructuras de respuesta
-          const resultObj = createResult as any;
-          
-          // Intentar extraer el ID de diferentes formas
-          let careerId: string | null = null;
-          
-          if (resultObj._id) {
-            careerId = resultObj._id.toString();
-          } else if (resultObj.success && resultObj.data) {
-            if (resultObj.data._id) {
-              careerId = resultObj.data._id.toString();
-            } else if (resultObj.data.data && resultObj.data.data._id) {
-              careerId = resultObj.data.data._id.toString();
-            }
-          } else if (resultObj.data && resultObj.data._id) {
-            careerId = resultObj.data._id.toString();
-          }
-          
-          if (careerId) {
-            result.created++;
-            this.logger.log(`✅ Carrera creada: ${careerName} (${careerCode}) - ID: ${careerId}`);
-          } else {
-            result.errors.push(`Fila ${rowNumber}: Error al crear carrera "${careerName}" - Respuesta inválida`);
-            this.logger.error(`❌ Respuesta inválida para carrera:`, createResult);
-          }
+        if (existingCareer && existingCareer._id) {
+          // Actualizar
+          await this.careersService.update(existingCareer._id.toString(), careerData);
+          result.updated++;
+          this.logger.log(`🔄 Carrera actualizada: ${careerName}`);
         } else {
-          result.errors.push(`Fila ${rowNumber}: No se recibió respuesta al crear carrera "${careerName}"`);
-          this.logger.error(`❌ Respuesta vacía para carrera: ${careerName}`);
+          // Crear nueva
+          await this.careersService.create(careerData);
+          result.created++;
+          this.logger.log(`✅ Carrera creada: ${careerName}`);
         }
 
       } catch (error: any) {
-        this.logger.error(`❌ Error en fila ${rowNumber} (carreras):`, error.message);
         result.errors.push(`Fila ${rowNumber}: ${error.message}`);
       }
     }
 
-    this.logger.log(`📊 Resultado carreras: ${result.created} creadas, ${result.errors.length} errores`);
     return result;
   }
 
-  /** ========== IMPORTAR USUARIOS ========== */
+  /** Importar usuarios */
   private async importUsers(data: any[]): Promise<SheetResult> {
-    this.logger.log(`📥 Importando ${data.length} usuarios`);
-    const result: SheetResult = { created: 0, errors: [] };
-    
-    if (data.length === 0) {
-      result.errors.push('No hay datos para procesar');
-      return result;
-    }
-    
-    // DEBUG: Mostrar estructura de datos
-    this.logger.log('🔍 Estructura de datos de usuarios:', {
-      primeraFila: data[0],
-      claves: Object.keys(data[0] || {}),
-      totalFilas: data.length
-    });
+    const result: SheetResult = { created: 0, updated: 0, errors: [] };
     
     for (let i = 0; i < data.length; i++) {
       const row = data[i];
       const rowNumber = i + 2;
 
       try {
-        // DEBUG: Mostrar fila actual
-        this.logger.log(`🔍 Fila ${rowNumber} datos crudos (usuarios):`, row);
-        
-        // Usar la nueva función getRowValue
-        const email = this.getRowValue(row, ['email', 'correo', 'Email', 'Correo', 'EMAIL']);
-        const role = this.getRowValue(row, ['role', 'rol', 'Role', 'Rol', 'ROL']);
-        const fullName = this.getRowValue(row, ['fullname', 'nombre_completo', 'nombre', 'Nombre', 'name', 'Name']);
-        const firstName = this.getRowValue(row, ['firstname', 'nombre', 'primer_nombre', 'FirstName']);
-        const lastName = this.getRowValue(row, ['lastname', 'apellido', 'apellidos', 'LastName']);
-        const password = this.getRowValue(row, ['password', 'contrasena', 'contraseña', 'Password']);
-        const career = this.getRowValue(row, ['career', 'carrera', 'Career', 'Carrera']);
-        const phone = this.getRowValue(row, ['phone', 'telefono', 'teléfono', 'Phone']);
-        const active = this.getRowValue(row, ['active', 'activo', 'estado', 'Active', 'Activo']);
+        const email = this.getRowValue(row, ['email', 'correo']);
+        const role = this.getRowValue(row, ['role', 'rol']);
+        const fullName = this.getRowValue(row, ['fullname', 'nombre_completo', 'nombre', 'name']);
+        const firstName = this.getRowValue(row, ['firstname', 'nombre', 'primer_nombre']);
+        const lastName = this.getRowValue(row, ['lastname', 'apellido', 'apellidos']);
+        const password = this.getRowValue(row, ['password', 'contrasena', 'contraseña']);
+        const career = this.getRowValue(row, ['career', 'carrera']);
+        const phone = this.getRowValue(row, ['phone', 'telefono', 'teléfono']);
+        const active = this.getRowValue(row, ['active', 'activo', 'estado']);
 
-        // Validar datos requeridos
+        // Validaciones
         if (!email) {
           result.errors.push(`Fila ${rowNumber}: Email requerido`);
-          this.logger.error(`❌ Fila ${rowNumber}: No se encontró email. Claves:`, Object.keys(row));
           continue;
         }
 
@@ -539,34 +354,19 @@ export class ExcelService {
         }
 
         const emailStr = email.toString().trim().toLowerCase();
-        const roleStr = role.toString().toUpperCase();
-        
-        // Validar formato de email
         if (!this.isValidEmail(emailStr)) {
-          result.errors.push(`Fila ${rowNumber}: Email "${emailStr}" no válido`);
+          result.errors.push(`Fila ${rowNumber}: Email inválido`);
           continue;
         }
 
-        // Validar rol
-        const validRoles = [
-          'SUPERADMIN', 'ADMIN', 'DOCENTE', 'ESTUDIANTE', 
-          'JEFE_ACADEMICO', 'TUTOR', 'PSICOPEDAGOGICO', 
-          'DESARROLLO_ACADEMICO', 'CAPACITACION'
-        ];
-        
-        if (!validRoles.includes(roleStr)) {
-          result.errors.push(`Fila ${rowNumber}: Rol "${roleStr}" no válido. Roles válidos: ${validRoles.join(', ')}`);
-          continue;
-        }
-
-        // Preparar datos del usuario
+        // Preparar datos
         const userData: any = {
           email: emailStr,
-          role: roleStr,
+          role: role.toString().toUpperCase(),
           active: active !== undefined ? this.parseBoolean(active) : true,
         };
 
-        // Manejar nombre
+        // Nombre
         if (fullName) {
           userData.fullName = fullName.toString().trim();
         } else if (firstName && lastName) {
@@ -577,20 +377,15 @@ export class ExcelService {
           userData.fullName = firstName.toString().trim();
           userData.firstName = firstName.toString().trim();
         } else {
-          // Si no hay nombre, usar parte del email
           const username = emailStr.split('@')[0];
           userData.fullName = username.charAt(0).toUpperCase() + username.slice(1);
-          userData.firstName = username.charAt(0).toUpperCase() + username.slice(1);
         }
 
-        // Contraseña
+        // Contraseña - usar hashPassword
         if (password && password.toString().trim()) {
-          userData.password = await hashPassword(password.toString());
+          userData.password = await hashPassword(password.toString().trim());
         } else {
-          // Contraseña por defecto
-          const defaultPassword = `${emailStr.split('@')[0]}123`;
-          userData.password = await hashPassword(defaultPassword);
-          this.logger.log(`🔑 Contraseña por defecto para ${emailStr}: ${defaultPassword}`);
+          userData.password = await hashPassword(`${emailStr.split('@')[0]}123`);
         }
 
         // Campos opcionales
@@ -598,116 +393,59 @@ export class ExcelService {
         
         // Buscar carrera si se especifica
         if (career && career.toString().trim()) {
-          const careerId = await this.findCareerIdentifier(career.toString());
-          if (careerId) {
-            userData.career = careerId;
-            this.logger.log(`🔗 Usuario ${emailStr} asignado a carrera: ${career} -> ${careerId}`);
+          const careerResponse = await this.careersService.findByNameOrCode(career.toString());
+          const careerDoc = this.extractDocumentFromResponse(careerResponse);
+          
+          if (careerDoc && careerDoc._id) {
+            userData.career = careerDoc._id;
           } else {
-            result.errors.push(`Fila ${rowNumber}: Carrera "${career}" no encontrada para usuario ${emailStr}`);
-            this.logger.warn(`⚠️ Carrera no encontrada: "${career}" para usuario ${emailStr}`);
+            result.errors.push(`Fila ${rowNumber}: Carrera "${career}" no encontrada`);
           }
         }
 
         // Verificar si usuario ya existe
-        try {
-          const existingUser = await this.usersService.findByEmail(emailStr);
-          if (existingUser) {
-            result.errors.push(`Fila ${rowNumber}: Email ${emailStr} ya existe`);
-            this.logger.log(`⚠️ Usuario ya existe: ${emailStr}`);
-            continue;
-          }
-        } catch (error) {
-          // Si hay error al buscar, continuar (puede que el usuario no exista)
-          this.logger.log(`🔍 Usuario ${emailStr} no encontrado, procediendo a crear`);
-        }
-
-        this.logger.log(`📋 Procesando usuario [Fila ${rowNumber}]: ${emailStr} (${roleStr})`);
-        this.logger.log(`📋 Datos extraídos:`, {
-          fullName: userData.fullName,
-          email: userData.email,
-          role: userData.role
-        });
-
-        // Crear usuario
-        this.logger.log(`🔄 Creando usuario: ${emailStr}`);
-        const createdUser = await this.usersService.create(userData);
+        const existingUser = await this.usersService.findByEmail(emailStr);
         
-        if (createdUser) {
-          // Verificar diferentes estructuras de respuesta
-          const userObj = createdUser as any;
-          let userId: string | null = null;
-          
-          if (userObj._id) {
-            userId = userObj._id.toString();
-          } else if (userObj.success && userObj.data) {
-            if (userObj.data._id) {
-              userId = userObj.data._id.toString();
-            } else if (userObj.data.data && userObj.data.data._id) {
-              userId = userObj.data.data._id.toString();
-            }
-          } else if (userObj.data && userObj.data._id) {
-            userId = userObj.data._id.toString();
+        if (existingUser && existingUser._id) {
+          // Actualizar (mantener contraseña existente si no se proporciona)
+          if (!password || !password.toString().trim()) {
+            delete userData.password; // No actualizar contraseña
           }
-          
-          if (userId) {
-            result.created++;
-            this.logger.log(`✅ Usuario creado: ${emailStr} (${userData.fullName}) - ID: ${userId}`);
-          } else {
-            result.errors.push(`Fila ${rowNumber}: Error al crear usuario ${emailStr} - Respuesta inválida`);
-            this.logger.error(`❌ Respuesta inválida para usuario:`, createdUser);
-          }
+          await this.usersService.update(existingUser._id.toString(), userData);
+          result.updated++;
+          this.logger.log(`🔄 Usuario actualizado: ${emailStr}`);
         } else {
-          result.errors.push(`Fila ${rowNumber}: Error al crear usuario ${emailStr} - Respuesta vacía`);
-          this.logger.error(`❌ Respuesta vacía para usuario: ${emailStr}`);
+          // Crear nuevo
+          await this.usersService.create(userData);
+          result.created++;
+          this.logger.log(`✅ Usuario creado: ${emailStr}`);
         }
 
       } catch (error: any) {
-        this.logger.error(`❌ Error en fila ${rowNumber} (usuarios):`, error.message);
-        this.logger.error(error.stack);
         result.errors.push(`Fila ${rowNumber}: ${error.message}`);
       }
     }
 
-    this.logger.log(`📊 Resultado usuarios: ${result.created} creados, ${result.errors.length} errores`);
     return result;
   }
 
-  /** ========== IMPORTAR MATERIAS ========== */
+  /** Importar materias */
   private async importSubjects(data: any[]): Promise<SheetResult> {
-    this.logger.log(`📥 Importando ${data.length} materias`);
-    const result: SheetResult = { created: 0, errors: [] };
-    
-    if (data.length === 0) {
-      result.errors.push('No hay datos para procesar');
-      return result;
-    }
-    
-    // DEBUG: Mostrar estructura de datos
-    this.logger.log('🔍 Estructura de datos de materias:', {
-      primeraFila: data[0],
-      claves: Object.keys(data[0] || {}),
-      totalFilas: data.length
-    });
+    const result: SheetResult = { created: 0, updated: 0, errors: [] };
     
     for (let i = 0; i < data.length; i++) {
       const row = data[i];
       const rowNumber = i + 2;
 
       try {
-        // DEBUG: Mostrar fila actual
-        this.logger.log(`🔍 Fila ${rowNumber} datos crudos (materias):`, row);
-        
-        // Usar la nueva función getRowValue
-        const name = this.getRowValue(row, ['name', 'nombre', 'materia', 'Name', 'Nombre', 'Materia']);
-        const code = this.getRowValue(row, ['code', 'codigo', 'código', 'Code', 'Código']);
-        const career = this.getRowValue(row, ['career', 'carrera', 'Career', 'Carrera']);
-        const credits = this.getRowValue(row, ['credits', 'creditos', 'créditos', 'Credits', 'Créditos']);
-        const semester = this.getRowValue(row, ['semester', 'semestre', 'Semester', 'Semestre']);
+        const name = this.getRowValue(row, ['name', 'nombre', 'materia']);
+        const code = this.getRowValue(row, ['code', 'codigo', 'código']);
+        const career = this.getRowValue(row, ['career', 'carrera']);
+        const credits = this.getRowValue(row, ['credits', 'creditos', 'créditos']);
+        const semester = this.getRowValue(row, ['semester', 'semestre']);
 
-        // Validar datos requeridos
         if (!name) {
           result.errors.push(`Fila ${rowNumber}: Nombre de materia requerido`);
-          this.logger.error(`❌ Fila ${rowNumber}: No se encontró nombre de materia. Claves:`, Object.keys(row));
           continue;
         }
 
@@ -719,122 +457,69 @@ export class ExcelService {
         const subjectName = name.toString().trim();
         const subjectCode = code ? code.toString().trim().toUpperCase() : 
                           this.generateSubjectCode(subjectName);
-        
-        if (!subjectName || subjectName.length === 0) {
-          result.errors.push(`Fila ${rowNumber}: Nombre de materia vacío`);
-          continue;
-        }
-        
+
         // Buscar carrera
-        const careerId = await this.findCareerIdentifier(career.toString());
-        if (!careerId) {
-          result.errors.push(`Fila ${rowNumber}: Carrera "${career}" no encontrada para materia "${subjectName}"`);
-          this.logger.warn(`⚠️ Carrera no encontrada: "${career}" para materia ${subjectName}`);
+        const careerResponse = await this.careersService.findByNameOrCode(career.toString());
+        const careerDoc = this.extractDocumentFromResponse(careerResponse);
+        
+        if (!careerDoc || !careerDoc._id) {
+          result.errors.push(`Fila ${rowNumber}: Carrera "${career}" no encontrada`);
           continue;
         }
 
         const subjectData = {
           name: subjectName,
           code: subjectCode,
-          career: careerId,
+          career: careerDoc._id,
           credits: credits ? parseInt(credits.toString()) || 4 : 4,
           semester: semester ? parseInt(semester.toString()) || 1 : 1,
+          active: true,
         };
 
-        this.logger.log(`📋 Procesando materia [Fila ${rowNumber}]: ${subjectName} (${subjectCode}) para carrera ${careerId}`);
-        this.logger.log(`📋 Datos extraídos:`, subjectData);
-
-        // Verificar si ya existe el código
-        const existingSubject = await this.findSubjectByCode(subjectCode);
-        if (existingSubject) {
-          result.errors.push(`Fila ${rowNumber}: Código de materia "${subjectCode}" ya existe`);
-          this.logger.log(`⚠️ Código de materia ya existe: ${subjectCode}`);
-          continue;
-        }
-
-        // Crear materia
-        this.logger.log(`🔄 Creando materia: ${subjectName}`);
-        const createResult = await this.subjectsService.create(subjectData);
+        // Buscar si ya existe por código
+        const subjectResponse = await this.subjectsService.findByCode(subjectCode);
+        const existingSubject = this.extractDocumentFromResponse(subjectResponse);
         
-        if (createResult) {
-          // Verificar diferentes estructuras de respuesta
-          const resultObj = createResult as any;
-          let subjectId: string | null = null;
-          
-          if (resultObj._id) {
-            subjectId = resultObj._id.toString();
-          } else if (resultObj.success && resultObj.data) {
-            if (resultObj.data._id) {
-              subjectId = resultObj.data._id.toString();
-            } else if (resultObj.data.data && resultObj.data.data._id) {
-              subjectId = resultObj.data.data._id.toString();
-            }
-          } else if (resultObj.data && resultObj.data._id) {
-            subjectId = resultObj.data._id.toString();
-          }
-          
-          if (subjectId) {
-            result.created++;
-            this.logger.log(`✅ Materia creada: ${subjectName} (${subjectCode}) - ID: ${subjectId}`);
-          } else {
-            result.errors.push(`Fila ${rowNumber}: Error al crear materia "${subjectName}" - Respuesta inválida`);
-            this.logger.error(`❌ Respuesta inválida para materia:`, createResult);
-          }
+        if (existingSubject && existingSubject._id) {
+          // Actualizar
+          await this.subjectsService.update(existingSubject._id.toString(), subjectData);
+          result.updated++;
+          this.logger.log(`🔄 Materia actualizada: ${subjectName}`);
         } else {
-          result.errors.push(`Fila ${rowNumber}: Error al crear materia "${subjectName}" - Respuesta vacía`);
-          this.logger.error(`❌ Respuesta vacía para materia: ${subjectName}`);
+          // Crear nueva
+          await this.subjectsService.create(subjectData);
+          result.created++;
+          this.logger.log(`✅ Materia creada: ${subjectName}`);
         }
 
       } catch (error: any) {
-        this.logger.error(`❌ Error en fila ${rowNumber} (materias):`, error.message);
-        this.logger.error(error.stack);
         result.errors.push(`Fila ${rowNumber}: ${error.message}`);
       }
     }
 
-    this.logger.log(`📊 Resultado materias: ${result.created} creadas, ${result.errors.length} errores`);
     return result;
   }
 
-  /** ========== IMPORTAR GRUPOS ========== */
+  /** Importar grupos */
   private async importGroups(data: any[]): Promise<SheetResult> {
-    this.logger.log(`📥 Importando ${data.length} grupos`);
-    const result: SheetResult = { created: 0, errors: [] };
-    
-    if (data.length === 0) {
-      result.errors.push('No hay datos para procesar');
-      return result;
-    }
-    
-    // DEBUG: Mostrar estructura de datos
-    this.logger.log('🔍 Estructura de datos de grupos:', {
-      primeraFila: data[0],
-      claves: Object.keys(data[0] || {}),
-      totalFilas: data.length
-    });
+    const result: SheetResult = { created: 0, updated: 0, errors: [] };
     
     for (let i = 0; i < data.length; i++) {
       const row = data[i];
       const rowNumber = i + 2;
 
       try {
-        // DEBUG: Mostrar fila actual
-        this.logger.log(`🔍 Fila ${rowNumber} datos crudos (grupos):`, row);
-        
-        // Usar la nueva función getRowValue
-        const name = this.getRowValue(row, ['name', 'nombre', 'grupo', 'Name', 'Nombre', 'Grupo']);
-        const code = this.getRowValue(row, ['code', 'codigo', 'código', 'Code', 'Código']);
-        const subject = this.getRowValue(row, ['subject', 'materia', 'Subject', 'Materia']);
-        const teacher = this.getRowValue(row, ['teacher', 'profesor', 'docente', 'Teacher', 'Profesor']);
-        const schedule = this.getRowValue(row, ['schedule', 'horario', 'Schedule', 'Horario']);
-        const capacity = this.getRowValue(row, ['capacity', 'capacidad', 'Capacity', 'Capacidad']);
-        const students = this.getRowValue(row, ['students', 'estudiantes', 'alumnos', 'Students', 'Estudiantes']);
-        const active = this.getRowValue(row, ['active', 'activo', 'estado', 'Active', 'Activo']);
+        const name = this.getRowValue(row, ['name', 'nombre', 'grupo']);
+        const code = this.getRowValue(row, ['code', 'codigo', 'código']);
+        const subject = this.getRowValue(row, ['subject', 'materia']);
+        const teacher = this.getRowValue(row, ['teacher', 'profesor', 'docente']);
+        const schedule = this.getRowValue(row, ['schedule', 'horario']);
+        const capacity = this.getRowValue(row, ['capacity', 'capacidad']);
+        const students = this.getRowValue(row, ['students', 'estudiantes', 'alumnos']);
+        const active = this.getRowValue(row, ['active', 'activo', 'estado']);
 
-        // Validar datos requeridos
         if (!name) {
           result.errors.push(`Fila ${rowNumber}: Nombre del grupo requerido`);
-          this.logger.error(`❌ Fila ${rowNumber}: No se encontró nombre de grupo. Claves:`, Object.keys(row));
           continue;
         }
 
@@ -847,442 +532,140 @@ export class ExcelService {
         const groupCode = code ? code.toString().trim() : 
                          `GRP-${this.generateCodeFromName(groupName)}`;
 
-        if (!groupName || groupName.length === 0) {
-          result.errors.push(`Fila ${rowNumber}: Nombre de grupo vacío`);
-          continue;
-        }
-
-        // Buscar materia
-        const subjectId = await this.findSubjectIdentifier(subject.toString());
-        if (!subjectId) {
-          result.errors.push(`Fila ${rowNumber}: Materia "${subject}" no encontrada para grupo "${groupName}"`);
-          this.logger.warn(`⚠️ Materia no encontrada: "${subject}" para grupo ${groupName}`);
-          continue;
-        }
-
-        // Obtener la materia para obtener su carrera
-        let careerId: string | undefined;
-        try {
-          const subjectResult = await this.subjectsService.findOne(subjectId);
+        // Buscar materia por código o nombre
+        let subjectDoc = null;
+        
+        // Primero buscar por código
+        const subjectByCodeResponse = await this.subjectsService.findByCode(subject.toString());
+        subjectDoc = this.extractDocumentFromResponse(subjectByCodeResponse);
+        
+        // Si no encuentra por código, buscar por nombre
+        if (!subjectDoc) {
+          // Necesitaríamos un método para buscar por nombre
+          // Por ahora, usar el código como nombre
+          const allSubjectsResponse = await this.subjectsService.findAll();
+          const allSubjects = this.extractDocumentFromResponse(allSubjectsResponse);
           
-          if (subjectResult) {
-            const subjectObj = subjectResult as any;
-            if (subjectObj.success && subjectObj.data) {
-              careerId = subjectObj.data.careerId || subjectObj.data.career?._id || subjectObj.data.career;
-            } else if (subjectObj._id) {
-              careerId = subjectObj.careerId || subjectObj.career?._id || subjectObj.career;
-            }
+          if (Array.isArray(allSubjects)) {
+            subjectDoc = allSubjects.find((s: any) => 
+              s.name.toLowerCase() === subject.toString().toLowerCase() || 
+              s.code.toLowerCase() === subject.toString().toLowerCase()
+            );
           }
-        } catch (error) {
-          this.logger.warn(`⚠️ No se pudo obtener carrera de la materia ${subjectId}: ${error.message}`);
+        }
+
+        if (!subjectDoc || !subjectDoc._id) {
+          result.errors.push(`Fila ${rowNumber}: Materia "${subject}" no encontrada`);
+          continue;
         }
 
         // Preparar datos del grupo
         const groupData: any = {
           name: groupName,
           code: groupCode,
-          subject: subjectId,
+          subject: subjectDoc._id,
           schedule: schedule ? schedule.toString().trim() : '',
           capacity: capacity ? parseInt(capacity.toString()) || 30 : 30,
           active: active !== undefined ? this.parseBoolean(active) : true,
         };
 
-        // Agregar carrera si se encontró
-        if (careerId) {
-          groupData.career = careerId;
-          this.logger.log(`🔗 Grupo ${groupName} asignado a carrera: ${careerId}`);
+        // Si la materia tiene carrera, asignarla al grupo
+        if (subjectDoc.career && subjectDoc.career._id) {
+          groupData.career = subjectDoc.career._id;
+        } else if (subjectDoc.careerId) {
+          groupData.career = subjectDoc.careerId;
         }
 
-        // Buscar profesor si se especifica
+        // Buscar profesor por email
         if (teacher && teacher.toString().trim()) {
-          const teacherId = await this.findUserIdentifier(teacher.toString());
-          if (teacherId) {
-            groupData.teacher = teacherId;
-            this.logger.log(`👨‍🏫 Profesor asignado al grupo ${groupName}: ${teacher} -> ${teacherId}`);
+          const teacherUser = await this.usersService.findByEmail(teacher.toString());
+          if (teacherUser && teacherUser._id) {
+            groupData.teacher = teacherUser._id;
           } else {
-            result.errors.push(`Fila ${rowNumber}: Profesor "${teacher}" no encontrado para grupo "${groupName}"`);
-            this.logger.warn(`⚠️ Profesor no encontrado: "${teacher}" para grupo ${groupName}`);
+            result.errors.push(`Fila ${rowNumber}: Profesor "${teacher}" no encontrado`);
           }
         }
 
-        this.logger.log(`📋 Procesando grupo [Fila ${rowNumber}]: ${groupName} (${groupCode})`);
-        this.logger.log(`📋 Datos extraídos:`, {
-          name: groupName,
-          code: groupCode,
-          subjectId: subjectId,
-          teacher: groupData.teacher || 'No asignado'
-        });
+        // Buscar si ya existe el grupo por código
+        const groupResponse = await this.groupsService.findAll();
+        let existingGroup = null;
+        
+        if (groupResponse) {
+          // Los grupos no tienen método findByCode, buscar en la lista
+          const allGroups = Array.isArray(groupResponse) ? groupResponse : [];
+          existingGroup = allGroups.find((g: any) => 
+            g.code && g.code.toLowerCase() === groupCode.toLowerCase()
+          );
+        }
 
-        // Crear grupo
-        this.logger.log(`🔄 Creando grupo: ${groupName}`);
-        const createResult = await this.groupsService.create(groupData);
-        
-        let groupId: string | undefined;
-        
-        // Extraer ID del grupo creado de diferentes estructuras de respuesta
-        if (createResult) {
-          const resultObj = createResult as any;
+        if (existingGroup && existingGroup._id) {
+          // Actualizar grupo existente
+          await this.groupsService.update(existingGroup._id.toString(), groupData);
+          result.updated++;
+          this.logger.log(`🔄 Grupo actualizado: ${groupName}`);
           
-          if (resultObj._id) {
-            groupId = resultObj._id.toString();
-          } else if (resultObj.success && resultObj.data && resultObj.data._id) {
-            groupId = resultObj.data._id.toString();
-          } else if (resultObj.data && resultObj.data._id) {
-            groupId = resultObj.data._id.toString();
-          } else if (resultObj.data && resultObj.data.data && resultObj.data.data._id) {
-            groupId = resultObj.data.data._id.toString();
-          }
-        }
-
-        if (groupId) {
-          result.created++;
-          this.logger.log(`✅ Grupo creado: ${groupName} (ID: ${groupId})`);
-
           // Asignar estudiantes si se especifican
           if (students && students.toString().trim()) {
-            await this.assignStudentsToGroup(groupId, students.toString(), rowNumber, result);
+            await this.assignStudents(existingGroup._id.toString(), students.toString(), rowNumber, result);
           }
         } else {
-          result.errors.push(`Fila ${rowNumber}: Error al crear grupo "${groupName}" - No se obtuvo ID`);
-          this.logger.error(`❌ No se obtuvo ID para grupo ${groupName}:`, createResult);
+          // Crear nuevo grupo
+          const createResponse = await this.groupsService.create(groupData);
+          const newGroup = this.extractDocumentFromResponse(createResponse);
+          
+          if (newGroup && newGroup._id) {
+            result.created++;
+            this.logger.log(`✅ Grupo creado: ${groupName} (ID: ${newGroup._id})`);
+            
+            // Asignar estudiantes si se especifican
+            if (students && students.toString().trim()) {
+              await this.assignStudents(newGroup._id.toString(), students.toString(), rowNumber, result);
+            }
+          } else {
+            result.errors.push(`Fila ${rowNumber}: Error al crear grupo "${groupName}"`);
+          }
         }
 
       } catch (error: any) {
-        this.logger.error(`❌ Error en fila ${rowNumber} (grupos):`, error.message);
-        this.logger.error(error.stack);
         result.errors.push(`Fila ${rowNumber}: ${error.message}`);
       }
     }
 
-    this.logger.log(`📊 Resultado grupos: ${result.created} creados, ${result.errors.length} errores`);
     return result;
   }
 
-  /** ========== MÉTODOS AUXILIARES ========== */
-
-  /** Asignar estudiantes a un grupo */
-  private async assignStudentsToGroup(
-    groupId: string, 
-    studentsString: string, 
-    rowNumber: number,
-    result: SheetResult
-  ): Promise<void> {
+  /** Asignar estudiantes a grupo */
+  private async assignStudents(groupId: string, studentsString: string, rowNumber: number, result: SheetResult): Promise<void> {
     try {
-      // Separar emails por coma o punto y coma
       const studentEmails = studentsString
         .split(/[,;]/)
         .map(email => email.trim())
-        .filter(email => email.length > 0 && this.isValidEmail(email));
-
-      if (studentEmails.length === 0) {
-        this.logger.log(`ℹ️ No hay estudiantes válidos para asignar al grupo ${groupId}`);
-        return;
-      }
-
-      this.logger.log(`👥 Asignando ${studentEmails.length} estudiantes al grupo ${groupId}`);
+        .filter(email => this.isValidEmail(email));
 
       const studentIds: string[] = [];
       
       for (const email of studentEmails) {
-        const studentId = await this.findUserIdentifier(email);
-        if (studentId) {
-          studentIds.push(studentId);
-          this.logger.log(`✅ Estudiante encontrado: ${email} -> ${studentId}`);
+        const student = await this.usersService.findByEmail(email);
+        if (student && student._id) {
+          studentIds.push(student._id.toString());
+          this.logger.log(`👤 Estudiante encontrado: ${email} -> ${student._id}`);
         } else {
-          result.errors.push(`Fila ${rowNumber}: Estudiante "${email}" no encontrado para asignar al grupo`);
-          this.logger.warn(`⚠️ Estudiante no encontrado: ${email}`);
+          result.errors.push(`Fila ${rowNumber}: Estudiante "${email}" no encontrado`);
         }
       }
 
       if (studentIds.length > 0) {
-        // Asignar estudiantes al grupo
         try {
           await this.groupsService.addStudents(groupId, studentIds);
           this.logger.log(`✅ ${studentIds.length} estudiantes asignados al grupo ${groupId}`);
         } catch (error: any) {
-          this.logger.error(`❌ Error asignando estudiantes al grupo ${groupId}:`, error);
           result.errors.push(`Fila ${rowNumber}: Error asignando estudiantes al grupo: ${error.message}`);
         }
       }
 
     } catch (error: any) {
-      this.logger.error(`❌ Error procesando estudiantes para grupo ${groupId}:`, error);
+      result.errors.push(`Fila ${rowNumber}: Error procesando estudiantes: ${error.message}`);
     }
-  }
-
-  /** Buscar carrera por nombre, código o ID */
-  private async findCareerIdentifier(identifier: string): Promise<string | null> {
-    if (!identifier || identifier.trim() === '') {
-      return null;
-    }
-
-    const cleanId = identifier.trim();
-    this.logger.log(`🔍 Buscando carrera con identificador: "${cleanId}"`);
-
-    // 1. Verificar si es ObjectId válido
-    if (Types.ObjectId.isValid(cleanId)) {
-      try {
-        const careerResult = await this.careersService.findOne(cleanId);
-        
-        if (careerResult) {
-          const result = careerResult as any;
-          if (result.success && result.data && result.data._id) {
-            return result.data._id.toString();
-          }
-          if (result._id) {
-            return result._id.toString();
-          }
-          if (result.data && result.data._id) {
-            return result.data._id.toString();
-          }
-        }
-      } catch (error) {
-        this.logger.error(`❌ Error buscando carrera por ID ${cleanId}:`, error);
-      }
-    }
-
-    // 2. Buscar por código o nombre
-    try {
-      const careersResult = await this.careersService.findAll();
-      let careersArray: any[] = [];
-
-      // Extraer array de diferentes estructuras
-      if (careersResult) {
-        const result = careersResult as any;
-        if (result.success && result.data) {
-          if (Array.isArray(result.data)) {
-            careersArray = result.data;
-          } else if (result.data.data && Array.isArray(result.data.data)) {
-            careersArray = result.data.data;
-          }
-        } else if (Array.isArray(careersResult)) {
-          careersArray = careersResult;
-        } else if (result.data && Array.isArray(result.data)) {
-          careersArray = result.data;
-        }
-      }
-
-      // Buscar coincidencia
-      const found = careersArray.find((c: any) => {
-        if (!c) return false;
-        const nameMatch = c.name?.toLowerCase() === cleanId.toLowerCase();
-        const codeMatch = c.code?.toLowerCase() === cleanId.toLowerCase();
-        return nameMatch || codeMatch;
-      });
-
-      if (found) {
-        this.logger.log(`✅ Carrera encontrada: "${cleanId}" -> ${found._id} (${found.name})`);
-        return found._id?.toString() || null;
-      }
-
-    } catch (error) {
-      this.logger.error('❌ Error buscando carrera por nombre/código:', error);
-    }
-
-    this.logger.log(`❌ Carrera no encontrada: "${cleanId}"`);
-    return null;
-  }
-
-  /** Buscar carrera por nombre o código */
-  private async findCareerByNameOrCode(name: string, code: string): Promise<any> {
-    try {
-      const careersResult = await this.careersService.findAll();
-      let careersArray: any[] = [];
-
-      if (careersResult) {
-        const result = careersResult as any;
-        if (result.success && result.data) {
-          if (Array.isArray(result.data)) {
-            careersArray = result.data;
-          } else if (result.data.data && Array.isArray(result.data.data)) {
-            careersArray = result.data.data;
-          }
-        } else if (Array.isArray(careersResult)) {
-          careersArray = careersResult;
-        } else if (result.data && Array.isArray(result.data)) {
-          careersArray = result.data;
-        }
-      }
-
-      return careersArray.find((c: any) => {
-        if (!c) return false;
-        const nameMatch = c.name?.toLowerCase() === name.toLowerCase();
-        const codeMatch = c.code?.toLowerCase() === code.toLowerCase();
-        return nameMatch || codeMatch;
-      });
-    } catch (error) {
-      this.logger.error('❌ Error en findCareerByNameOrCode:', error);
-      return null;
-    }
-  }
-
-  /** Buscar materia por código */
-  private async findSubjectByCode(code: string): Promise<any> {
-    try {
-      const subjectsResult = await this.subjectsService.findAll();
-      let subjectsArray: any[] = [];
-
-      if (subjectsResult) {
-        const result = subjectsResult as any;
-        if (result.success && result.data) {
-          if (Array.isArray(result.data)) {
-            subjectsArray = result.data;
-          } else if (result.data.data && Array.isArray(result.data.data)) {
-            subjectsArray = result.data.data;
-          }
-        } else if (Array.isArray(subjectsResult)) {
-          subjectsArray = subjectsResult;
-        } else if (result.data && Array.isArray(result.data)) {
-          subjectsArray = result.data;
-        }
-      }
-
-      return subjectsArray.find((s: any) => 
-        s && s.code?.toLowerCase() === code.toLowerCase()
-      );
-    } catch (error) {
-      this.logger.error('❌ Error en findSubjectByCode:', error);
-      return null;
-    }
-  }
-
-  /** Buscar materia por nombre, código o ID */
-  private async findSubjectIdentifier(identifier: string): Promise<string | null> {
-    if (!identifier || identifier.trim() === '') {
-      return null;
-    }
-
-    const cleanId = identifier.trim();
-    this.logger.log(`🔍 Buscando materia con identificador: "${cleanId}"`);
-
-    // 1. Verificar si es ObjectId válido
-    if (Types.ObjectId.isValid(cleanId)) {
-      try {
-        const subjectResult = await this.subjectsService.findOne(cleanId);
-        
-        if (subjectResult) {
-          const result = subjectResult as any;
-          if (result.success && result.data && result.data._id) {
-            return result.data._id.toString();
-          }
-          if (result._id) {
-            return result._id.toString();
-          }
-        }
-      } catch (error) {
-        this.logger.error(`❌ Error buscando materia por ID ${cleanId}:`, error);
-      }
-    }
-
-    // 2. Buscar por código o nombre
-    try {
-      const subjectsResult = await this.subjectsService.findAll();
-      let subjectsArray: any[] = [];
-
-      if (subjectsResult) {
-        const result = subjectsResult as any;
-        if (result.success && result.data) {
-          if (Array.isArray(result.data)) {
-            subjectsArray = result.data;
-          } else if (result.data.data && Array.isArray(result.data.data)) {
-            subjectsArray = result.data.data;
-          }
-        } else if (Array.isArray(subjectsResult)) {
-          subjectsArray = subjectsResult;
-        } else if (result.data && Array.isArray(result.data)) {
-          subjectsArray = result.data;
-        }
-      }
-
-      const found = subjectsArray.find((s: any) => {
-        if (!s) return false;
-        const nameMatch = s.name?.toLowerCase() === cleanId.toLowerCase();
-        const codeMatch = s.code?.toLowerCase() === cleanId.toLowerCase();
-        return nameMatch || codeMatch;
-      });
-
-      if (found) {
-        this.logger.log(`✅ Materia encontrada: "${cleanId}" -> ${found._id} (${found.name})`);
-        return found._id?.toString() || null;
-      }
-
-    } catch (error) {
-      this.logger.error('❌ Error buscando materia por nombre/código:', error);
-    }
-
-    this.logger.log(`❌ Materia no encontrada: "${cleanId}"`);
-    return null;
-  }
-
-  /** Buscar usuario por email, nombre o ID */
-  private async findUserIdentifier(identifier: string): Promise<string | null> {
-    if (!identifier || identifier.trim() === '') {
-      return null;
-    }
-
-    const cleanId = identifier.trim();
-    this.logger.log(`🔍 Buscando usuario con identificador: "${cleanId}"`);
-
-    // 1. Verificar si es ObjectId válido
-    if (Types.ObjectId.isValid(cleanId)) {
-      try {
-        const user = await this.usersService.findOne(cleanId);
-        if (user && (user as any)._id) {
-          this.logger.log(`✅ Usuario encontrado por ID: ${cleanId} -> ${(user as any)._id}`);
-          return (user as any)._id.toString();
-        }
-      } catch (error) {
-        this.logger.error(`❌ Error buscando usuario por ID ${cleanId}:`, error);
-      }
-    }
-
-    // 2. Buscar por email (caso más común)
-    if (cleanId.includes('@') && this.isValidEmail(cleanId)) {
-      try {
-        const user = await this.usersService.findByEmail(cleanId);
-        if (user && (user as any)._id) {
-          this.logger.log(`✅ Usuario encontrado por email: ${cleanId} -> ${(user as any)._id}`);
-          return (user as any)._id.toString();
-        }
-      } catch (error) {
-        this.logger.error(`❌ Error buscando usuario por email ${cleanId}:`, error);
-      }
-    }
-
-    // 3. Buscar por nombre (menos común)
-    try {
-      // Podrías implementar búsqueda por nombre si es necesario
-      this.logger.log(`ℹ️ Búsqueda por nombre no implementada para: "${cleanId}"`);
-    } catch (error) {
-      this.logger.error(`❌ Error buscando usuario por nombre ${cleanId}:`, error);
-    }
-
-    this.logger.log(`❌ Usuario no encontrado: "${cleanId}"`);
-    return null;
-  }
-
-  /** Generar código de materia automáticamente */
-  private generateSubjectCode(subjectName: string): string {
-    const words = subjectName.split(' ').filter(w => w.length > 0);
-    if (words.length >= 2) {
-      return words.map(w => w.charAt(0)).join('').toUpperCase().substring(0, 4);
-    }
-    return subjectName.substring(0, 4).toUpperCase();
-  }
-
-  /** Generar código automáticamente desde nombre */
-  private generateCodeFromName(name: string): string {
-    const words = name.split(' ').filter(w => w.length > 0);
-    if (words.length >= 2) {
-      return words.map(w => w.charAt(0)).join('').toUpperCase();
-    }
-    return name.substring(0, 3).toUpperCase();
-  }
-
-  /** Validar formato de email */
-  private isValidEmail(email: string): boolean {
-    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-    return emailRegex.test(email);
   }
 
   /** Método de prueba */
@@ -1290,7 +673,6 @@ export class ExcelService {
     try {
       this.logger.log('🧪 Probando ExcelService...');
       
-      // Verificar que los servicios estén disponibles
       const services = [
         { name: 'usersService', service: this.usersService },
         { name: 'careersService', service: this.careersService },
@@ -1301,8 +683,7 @@ export class ExcelService {
       const unavailableServices = services.filter(s => !s.service);
       
       if (unavailableServices.length > 0) {
-        const serviceNames = unavailableServices.map(s => s.name).join(', ');
-        throw new Error(`Servicios no disponibles: ${serviceNames}`);
+        throw new Error(`Servicios no disponibles: ${unavailableServices.map(s => s.name).join(', ')}`);
       }
       
       return {
@@ -1310,7 +691,6 @@ export class ExcelService {
         message: 'ExcelService funcionando correctamente'
       };
     } catch (error: any) {
-      this.logger.error('❌ Error en testService:', error);
       return {
         success: false,
         message: error.message

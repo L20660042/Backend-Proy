@@ -11,48 +11,56 @@ export class SubjectsService {
     @InjectModel(Subject.name) private subjectModel: Model<SubjectDocument>,
   ) {}
 
-  async create(dto: CreateSubjectDto): Promise<any> {
-  // Verificar si el código ya existe
-  const exists = await this.subjectModel.findOne({ code: dto.code });
-  if (exists) {
-    throw new BadRequestException('El código de materia ya existe');
+  async create(dto: CreateSubjectDto | any): Promise<any> {
+    // Verificar si el código ya existe
+    if (dto.code) {
+      const exists = await this.subjectModel.findOne({ 
+        code: { $regex: `^${dto.code}$`, $options: 'i' } 
+      });
+      if (exists) {
+        throw new BadRequestException('El código de materia ya existe');
+      }
+    }
+
+    // Convertir career a ObjectId si es string
+    if (dto.career && typeof dto.career === 'string') {
+      if (!Types.ObjectId.isValid(dto.career)) {
+        throw new BadRequestException('ID de carrera inválido');
+      }
+      dto.career = new Types.ObjectId(dto.career);
+    }
+
+    const subject = new this.subjectModel(dto);
+    const savedSubject = await subject.save();
+    
+    // Populate para obtener datos relacionados
+    const populatedSubject = await this.subjectModel
+      .findById(savedSubject._id)
+      .populate('career', 'name code')
+      .populate('teacher', 'fullName email')
+      .exec();
+
+    if (!populatedSubject) {
+      throw new NotFoundException('Materia no encontrada después de crear');
+    }
+
+    return {
+      success: true,
+      data: {
+        ...populatedSubject.toObject(),
+        status: populatedSubject.active ? 'active' : 'inactive',
+        careerId: populatedSubject.career ? (populatedSubject.career as any)._id?.toString() : null,
+        careerName: (populatedSubject.career as any)?.['name'] || 'Desconocida'
+      },
+      message: 'Materia creada exitosamente'
+    };
   }
 
-  // Verificar que el ID de carrera sea válido
-  if (!Types.ObjectId.isValid(dto.career)) {
-    throw new BadRequestException('ID de carrera inválido');
+  async createSimple(subjectData: any): Promise<SubjectDocument> {
+    // Método simplificado para ExcelService
+    const subject = new this.subjectModel(subjectData);
+    return subject.save();
   }
-
-  const subject = new this.subjectModel({
-    ...dto,
-    career: new Types.ObjectId(dto.career) // Convertir string a ObjectId
-  });
-  
-  const savedSubject = await subject.save();
-  
-  // Populate para obtener datos relacionados
-  const populatedSubject = await this.subjectModel
-    .findById(savedSubject._id)
-    .populate('career', 'name code')
-    .populate('teacher', 'fullName email')
-    .exec();
-
-  // Validar que populatedSubject no sea null
-  if (!populatedSubject) {
-    throw new NotFoundException('Materia no encontrada después de crear');
-  }
-
-  return {
-    success: true,
-    data: {
-      ...populatedSubject.toObject(),
-      status: populatedSubject.active ? 'active' : 'inactive',
-      careerId: dto.career, // Mantener el ID original como string
-      careerName: (populatedSubject.career as any)?.['name'] || 'Desconocida'
-    },
-    message: 'Materia creada exitosamente'
-  };
-}
 
   async findAll(): Promise<any> {
     const subjects = await this.subjectModel
@@ -65,7 +73,7 @@ export class SubjectsService {
     const mappedSubjects = subjects.map(subject => ({
       ...subject.toObject(),
       status: subject.active ? 'active' : 'inactive',
-      careerId: (subject.career as any)?.['_id']?.toString(),
+      careerId: subject.career ? (subject.career as any)._id?.toString() : null,
       careerName: (subject.career as any)?.['name'] || 'Desconocida',
       teacherName: (subject.teacher as any)?.['fullName'] || 'Sin asignar'
     }));
@@ -75,6 +83,11 @@ export class SubjectsService {
       data: mappedSubjects,
       message: 'Materias obtenidas exitosamente'
     };
+  }
+
+  async findAllSimple(): Promise<SubjectDocument[]> {
+    // Método simplificado para ExcelService
+    return this.subjectModel.find().exec();
   }
 
   async findOne(id: string): Promise<any> {
@@ -93,59 +106,71 @@ export class SubjectsService {
       data: {
         ...subject.toObject(),
         status: subject.active ? 'active' : 'inactive',
-        careerId: (subject.career as any)?.['_id']?.toString(),
+        careerId: subject.career ? (subject.career as any)._id?.toString() : null,
         careerName: (subject.career as any)?.['name'] || 'Desconocida',
         teacherName: (subject.teacher as any)?.['fullName'] || 'Sin asignar'
       }
     };
   }
 
-  async update(id: string, dto: UpdateSubjectDto): Promise<any> {
-  const subject = await this.subjectModel.findById(id);
-  if (!subject) {
-    throw new NotFoundException('Materia no encontrada');
+  async findOneSimple(id: string): Promise<SubjectDocument | null> {
+    return this.subjectModel.findById(id).exec();
   }
 
-  // Convertir status a active si viene del frontend
-  if (dto.status) {
-    dto.active = dto.status === 'active';
-    delete dto.status;
-  }
-
-  // Si viene career (como string), convertirlo a ObjectId
-  if (dto.career && typeof dto.career === 'string') {
-    if (!Types.ObjectId.isValid(dto.career)) {
-      throw new BadRequestException('ID de carrera inválido');
+  async update(id: string, dto: UpdateSubjectDto | any): Promise<any> {
+    const subject = await this.subjectModel.findById(id);
+    if (!subject) {
+      throw new NotFoundException('Materia no encontrada');
     }
-    dto.career = new Types.ObjectId(dto.career) as any;
+
+    // Convertir status a active si viene del frontend
+    if (dto.status) {
+      dto.active = dto.status === 'active';
+      delete dto.status;
+    }
+
+    // Si viene career (como string), convertirlo a ObjectId
+    if (dto.career && typeof dto.career === 'string') {
+      if (!Types.ObjectId.isValid(dto.career)) {
+        throw new BadRequestException('ID de carrera inválido');
+      }
+      dto.career = new Types.ObjectId(dto.career);
+    }
+
+    Object.assign(subject, dto);
+    await subject.save();
+
+    // Obtener datos actualizados con populate
+    const updatedSubject = await this.subjectModel
+      .findById(id)
+      .populate('career', 'name code')
+      .populate('teacher', 'fullName email')
+      .exec();
+
+    if (!updatedSubject) {
+      throw new NotFoundException('Materia no encontrada después de actualizar');
+    }
+
+    return {
+      success: true,
+      data: {
+        ...updatedSubject.toObject(),
+        status: updatedSubject.active ? 'active' : 'inactive',
+        careerId: updatedSubject.career ? (updatedSubject.career as any)._id?.toString() : null,
+        careerName: (updatedSubject.career as any)?.['name'] || 'Desconocida',
+        teacherName: (updatedSubject.teacher as any)?.['fullName'] || 'Sin asignar'
+      },
+      message: 'Materia actualizada exitosamente'
+    };
   }
 
-  Object.assign(subject, dto);
-  await subject.save();
-
-  // Obtener datos actualizados con populate
-  const updatedSubject = await this.subjectModel
-    .findById(id)
-    .populate('career', 'name code')
-    .populate('teacher', 'fullName email')
-    .exec();
-
-  if (!updatedSubject) {
-    throw new NotFoundException('Materia no encontrada después de actualizar');
+  async updateSimple(id: string, updateData: any): Promise<SubjectDocument | null> {
+    return this.subjectModel.findByIdAndUpdate(
+      id, 
+      updateData, 
+      { new: true }
+    ).exec();
   }
-
-  return {
-    success: true,
-    data: {
-      ...updatedSubject.toObject(),
-      status: updatedSubject.active ? 'active' : 'inactive',
-      careerId: (updatedSubject.career as any)?.['_id']?.toString(),
-      careerName: (updatedSubject.career as any)?.['name'] || 'Desconocida',
-      teacherName: (updatedSubject.teacher as any)?.['fullName'] || 'Sin asignar'
-    },
-    message: 'Materia actualizada exitosamente'
-  };
-}
 
   async toggleActive(id: string): Promise<any> {
     const subject = await this.subjectModel.findById(id);
@@ -179,9 +204,36 @@ export class SubjectsService {
     };
   }
   
-async findByCode(code: string): Promise<any> {
+  async findByCode(code: string): Promise<any> {
+    const subject = await this.subjectModel.findOne({ 
+      code: { $regex: `^${code}$`, $options: 'i' } 
+    })
+    .populate('career', 'name code')
+    .exec();
+
+    if (subject) {
+      return {
+        success: true,
+        data: {
+          ...subject.toObject(),
+          status: subject.active ? 'active' : 'inactive',
+          careerId: subject.career ? (subject.career as any)._id?.toString() : null,
+          careerName: (subject.career as any)?.['name'] || 'Desconocida'
+        }
+      };
+    }
+    
+    return { success: false, message: 'Materia no encontrada' };
+  }
+
+  async findSubjectByCodeSimple(code: string): Promise<SubjectDocument | null> {
+    return this.subjectModel.findOne({ 
+      code: { $regex: `^${code}$`, $options: 'i' } 
+    }).exec();
+  }
+  async findByName(name: string): Promise<any> {
   const subject = await this.subjectModel.findOne({ 
-    code: { $regex: `^${code}$`, $options: 'i' } 
+    name: { $regex: `^${name}$`, $options: 'i' } 
   })
   .populate('career', 'name code')
   .exec();
@@ -192,7 +244,7 @@ async findByCode(code: string): Promise<any> {
       data: {
         ...subject.toObject(),
         status: subject.active ? 'active' : 'inactive',
-        careerId: (subject.career as any)?.['_id']?.toString(),
+        careerId: subject.career ? (subject.career as any)._id?.toString() : null,
         careerName: (subject.career as any)?.['name'] || 'Desconocida'
       }
     };

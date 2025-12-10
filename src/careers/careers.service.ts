@@ -12,10 +12,17 @@ export class CareersService {
   ) {}
 
   async create(dto: CreateCareerDto): Promise<any> {
+    // Verificar duplicados
     const exists = await this.careerModel.findOne({ 
-      $or: [{ name: dto.name }, { code: dto.code }] 
+      $or: [
+        { name: { $regex: `^${dto.name}$`, $options: 'i' } }, 
+        { code: { $regex: `^${dto.code}$`, $options: 'i' } }
+      ] 
     });
-    if (exists) throw new BadRequestException('La carrera ya existe');
+    
+    if (exists) {
+      throw new BadRequestException('La carrera ya existe (nombre o código duplicado)');
+    }
 
     const career = new this.careerModel(dto);
     await career.save();
@@ -27,10 +34,15 @@ export class CareersService {
     };
   }
 
+  async createSimple(createCareerDto: any): Promise<CareerDocument> {
+    // Método simplificado para ExcelService
+    const career = new this.careerModel(createCareerDto);
+    return career.save();
+  }
+
   async findAll(): Promise<any> {
     const careers = await this.careerModel.find().sort({ name: 1 }).exec();
     
-    // Mapear active a status para el frontend
     const mappedCareers = careers.map(career => ({
       ...career.toObject(),
       status: career.active ? 'active' : 'inactive'
@@ -41,6 +53,11 @@ export class CareersService {
       data: mappedCareers,
       message: 'Carreras obtenidas exitosamente'
     };
+  }
+
+  async findAllSimple(): Promise<CareerDocument[]> {
+    // Método simplificado para ExcelService
+    return this.careerModel.find().sort({ name: 1 }).exec();
   }
 
   async findOne(id: string): Promise<any> {
@@ -56,14 +73,19 @@ export class CareersService {
     };
   }
 
+  async findOneSimple(id: string): Promise<CareerDocument | null> {
+    // Método simplificado para ExcelService
+    return this.careerModel.findById(id).exec();
+  }
+
   async update(id: string, dto: UpdateCareerDto): Promise<any> {
     const career = await this.careerModel.findById(id);
     if (!career) throw new NotFoundException('Carrera no encontrada');
 
-    // Convertir status a active si viene del frontend
-    // Nota: Esto ya se hace en el controlador, pero por si acaso
-    if (dto.status) {
+    // Si viene status, convertirlo a active
+    if ('status' in dto) {
       dto.active = dto.status === 'active';
+      delete dto.status;
     }
 
     Object.assign(career, dto);
@@ -77,6 +99,15 @@ export class CareersService {
       },
       message: 'Carrera actualizada exitosamente'
     };
+  }
+
+  async updateSimple(id: string, updateData: any): Promise<CareerDocument | null> {
+    // Método simplificado para ExcelService
+    return this.careerModel.findByIdAndUpdate(
+      id, 
+      updateData, 
+      { new: true }
+    ).exec();
   }
 
   async toggleActive(id: string): Promise<any> {
@@ -109,24 +140,36 @@ export class CareersService {
     };
   }
   
-async findByNameOrCode(identifier: string): Promise<any> {
-  const career = await this.careerModel.findOne({
-    $or: [
-      { name: { $regex: `^${identifier}$`, $options: 'i' } },
-      { code: { $regex: `^${identifier}$`, $options: 'i' } }
-    ]
-  }).exec();
+  async findByNameOrCode(identifier: string): Promise<any> {
+    const career = await this.careerModel.findOne({
+      $or: [
+        { name: { $regex: `^${identifier}$`, $options: 'i' } },
+        { code: { $regex: `^${identifier}$`, $options: 'i' } }
+      ]
+    }).exec();
 
-  if (career) {
-    return {
-      success: true,
-      data: {
-        ...career.toObject(),
-        status: career.active ? 'active' : 'inactive'
-      }
-    };
+    if (career) {
+      return {
+        success: true,
+        data: {
+          ...career.toObject(),
+          status: career.active ? 'active' : 'inactive'
+        }
+      };
+    }
+    
+    return { success: false, message: 'Carrera no encontrada' };
   }
-  
-  return { success: false, message: 'Carrera no encontrada' };
-}
+
+  async findByCode(code: string): Promise<CareerDocument | null> {
+    return this.careerModel.findOne({ 
+      code: { $regex: `^${code}$`, $options: 'i' } 
+    }).exec();
+  }
+
+  async findByName(name: string): Promise<CareerDocument | null> {
+    return this.careerModel.findOne({ 
+      name: { $regex: `^${name}$`, $options: 'i' } 
+    }).exec();
+  }
 }
