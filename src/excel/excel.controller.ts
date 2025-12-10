@@ -7,7 +7,6 @@ import {
   Res, 
   UseGuards,
   BadRequestException,
-  Req,
   InternalServerErrorException
 } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
@@ -23,22 +22,6 @@ import { RolesGuard } from '../auth/roles.guard';
 import { Roles } from '../auth/roles.decorator';
 import { UserRole } from '../common/enums';
 
-// Definir la interfaz aquí ya que no está exportada desde el servicio
-interface ImportResult {
-  summary: {
-    totalSheets: number;
-    processedSheets: number;
-    errors: string[];
-    success: boolean;
-    message: string;
-    totalCreated: number;
-  };
-  details: Record<string, {
-    created: number;
-    errors: string[];
-  }>;
-}
-
 @Controller('excel')
 @UseGuards(JwtGuard, RolesGuard)
 export class ExcelController {
@@ -49,7 +32,7 @@ export class ExcelController {
   @UseInterceptors(FileInterceptor('file', {
     storage: diskStorage({
       destination: (req, file, cb) => {
-        // Usar carpeta temporal del sistema (siempre existe)
+        // Usar carpeta temporal del sistema
         const tmpDir = os.tmpdir();
         const uploadDir = path.join(tmpDir, 'metricampus-uploads');
         
@@ -58,7 +41,7 @@ export class ExcelController {
           fs.mkdirSync(uploadDir, { recursive: true });
         }
         
-        console.log(`📁 Guardando en: ${uploadDir}`);
+        console.log(`📁 Guardando archivo en: ${uploadDir}`);
         cb(null, uploadDir);
       },
       filename: (req, file, cb) => {
@@ -72,23 +55,14 @@ export class ExcelController {
       fileSize: 10 * 1024 * 1024, // 10MB
     },
     fileFilter: (req, file, cb) => {
-      const allowedMimes = [
-        'application/vnd.ms-excel',
-        'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-        'application/vnd.openxmlformats-officedocument.spreadsheetml.template',
-        'application/vnd.ms-excel.sheet.macroEnabled.12',
-        'text/csv',
-        'text/plain'
-      ];
-      
-      const allowedExtensions = ['.xlsx', '.xls', '.csv', '.txt'];
+      const allowedExtensions = ['.xlsx', '.xls', '.csv'];
       const fileExtension = path.extname(file.originalname).toLowerCase();
       
-      if (allowedMimes.includes(file.mimetype) || allowedExtensions.includes(fileExtension)) {
+      if (allowedExtensions.includes(fileExtension)) {
         cb(null, true);
       } else {
         cb(new BadRequestException(
-          `Tipo de archivo no permitido. Formatos aceptados: ${allowedExtensions.join(', ')}`
+          `Formato de archivo no permitido. Formatos aceptados: ${allowedExtensions.join(', ')}`
         ), false);
       }
     }
@@ -108,24 +82,43 @@ export class ExcelController {
         throw new BadRequestException('No se recibió ningún archivo');
       }
       
-      // Si no hay buffer pero hay archivo en disco, leerlo
-      if ((!file.buffer || file.buffer.length === 0) && file.path) {
+      // Si no hay buffer, leer el archivo del disco
+      if ((!file.buffer || file.buffer.length === 0) && file.path && fs.existsSync(file.path)) {
         console.log(`📂 Leyendo archivo del disco: ${file.path}`);
-        if (fs.existsSync(file.path)) {
-          file.buffer = fs.readFileSync(file.path);
-          console.log(`✅ Archivo leído del disco: ${file.buffer.length} bytes`);
-        } else {
-          throw new BadRequestException('El archivo no se pudo leer del disco');
+        const fileBuffer = fs.readFileSync(file.path);
+        
+        // Crear un nuevo objeto de archivo con el buffer
+        const fileWithBuffer: any = {
+          ...file,
+          buffer: fileBuffer
+        };
+        
+        console.log(`✅ Archivo leído del disco: ${fileBuffer.length} bytes`);
+        
+        // Llamar al servicio de importación
+        const result = await this.excelService.importExcel(fileWithBuffer);
+        console.log('✅ Importación completada exitosamente:', result.summary);
+        
+        // Limpiar archivo temporal
+        try {
+          fs.unlinkSync(file.path);
+          console.log(`🗑️ Archivo temporal eliminado: ${file.path}`);
+        } catch (cleanupError) {
+          console.warn('⚠️ No se pudo eliminar archivo temporal:', cleanupError.message);
         }
+        
+        return result;
+        
+      } else if (file.buffer && file.buffer.length > 0) {
+        // Si ya tiene buffer, usarlo directamente
+        console.log(`✅ Usando buffer existente: ${file.buffer.length} bytes`);
+        const result = await this.excelService.importExcel(file);
+        console.log('✅ Importación completada exitosamente:', result.summary);
+        return result;
+        
+      } else {
+        throw new BadRequestException('El archivo está vacío o no se pudo leer');
       }
-      
-      if (!file.buffer || file.buffer.length === 0) {
-        throw new BadRequestException('El archivo está vacío');
-      }
-      
-      const result = await this.excelService.importExcel(file);
-      console.log('✅ Importación completada exitosamente:', result.summary);
-      return result;
       
     } catch (error: any) {
       console.error('❌ Error en importación - DETALLES:', {
@@ -134,13 +127,22 @@ export class ExcelController {
         name: error.name
       });
       
+      // Limpiar archivo temporal en caso de error
+      if (file?.path && fs.existsSync(file.path)) {
+        try {
+          fs.unlinkSync(file.path);
+          console.log(`🗑️ Archivo temporal eliminado después de error: ${file.path}`);
+        } catch (cleanupError) {
+          console.warn('⚠️ No se pudo eliminar archivo temporal:', cleanupError.message);
+        }
+      }
+      
       // Si es un error conocido, relanzarlo
       if (error instanceof BadRequestException) {
         throw error;
       }
       
-      // Para errores internos, dar un mensaje más informativo
-      console.error(`❌ Error interno del servidor: ${error.message}`);
+      // Para errores internos
       throw new InternalServerErrorException(
         `Error procesando el archivo: ${error.message}`
       );
@@ -369,17 +371,15 @@ export class ExcelController {
 
   @Get('test')
   @Roles(UserRole.ADMIN, UserRole.SUPERADMIN)
-  async test(@Req() req: any) {
+  async test() {
     console.log('🧪 Probando funcionalidad Excel');
     
     try {
-      // Obtener el usuario actual del request
-      const currentUser = req.user;
-      
       return {
         success: true,
         message: 'Endpoint de prueba disponible',
-        currentUser: currentUser ? 'Autenticado' : 'No autenticado'
+        serviceAvailable: !!this.excelService,
+        timestamp: new Date().toISOString()
       };
       
     } catch (error: any) {

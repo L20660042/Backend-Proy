@@ -4,7 +4,6 @@ import { LoggingInterceptor } from './interceptors/logging.interceptor';
 import { TransformInterceptor } from './interceptors/transform.interceptor';
 import { ErrorsInterceptor } from './interceptors/errors.interceptor';
 import { ValidationPipe } from '@nestjs/common';
-// REMOVER: import { CorsInterceptor } from './interceptors/cors.interceptor';
 
 async function bootstrap() {
   const app = await NestFactory.create(AppModule);
@@ -40,7 +39,7 @@ async function bootstrap() {
 
   app.useGlobalInterceptors(
     new LoggingInterceptor(),
-    // REMOVER: new CorsInterceptor(),  // <--- ESTA LÍNEA CAUSA EL PROBLEMA
+    
     new TransformInterceptor(),
     new ErrorsInterceptor(),
   );
