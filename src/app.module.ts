@@ -17,6 +17,7 @@ import { AlertsModule } from './alerts/alerts.module';
 import { ReportsModule } from './reports/reports.module';
 import { FiltersModule } from './filters/filters.module';
 import { ExcelModule } from './excel/excel.module';
+import { CalificacionesModule } from './calificaciones/calificaciones.module';
 
 @Module({
   imports: [
@@ -77,6 +78,7 @@ import { ExcelModule } from './excel/excel.module';
     ReportsModule,
     FiltersModule,
     ExcelModule, 
+    CalificacionesModule,
   ],
   controllers: [AppController],
   providers: [AppService],

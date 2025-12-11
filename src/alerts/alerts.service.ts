@@ -14,9 +14,11 @@ export class AlertsService {
     let riskLevel = 0;
 
     try {
-      const response = await axios.post('https://ml-service-production-fff9.up.railway.app/predict', {
-        text: dto.message,
-      });
+      const mlUrl = process.env.ML_SERVICE_URL || 'https://ml-service-production-fff9.up.railway.app';
+      const response = await axios.post(`${mlUrl}/api/analyze/feedback-sentiment`, {
+      text: dto.message,
+      context: 'alerta_estudiante',
+    });
 
       riskLevel = response.data.risk || 0;
     } catch (error) {

@@ -13,7 +13,7 @@ export class TutoriaController {
   constructor(private readonly tutoriaService: TutoriaService) {}
 
   @Post()
-  @Roles(UserRole.ADMIN, UserRole.SUPERADMIN, UserRole.TUTOR, UserRole.DOCENTE)
+  @Roles(UserRole.ADMIN, UserRole.SUPERADMIN, UserRole.TUTOR, UserRole.DOCENTE,UserRole.ESTUDIANTE)
   create(@Body() dto: CreateTutoriaDto) {
     return this.tutoriaService.create(dto);
   }
