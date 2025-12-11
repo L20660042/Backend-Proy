@@ -87,7 +87,7 @@ export class SubjectsService {
 
   async findAllSimple(): Promise<SubjectDocument[]> {
     // Método simplificado para ExcelService
-    return this.subjectModel.find().exec();
+    return this.subjectModel.find().populate('career').exec();
   }
 
   async findOne(id: string): Promise<any> {
@@ -114,7 +114,7 @@ export class SubjectsService {
   }
 
   async findOneSimple(id: string): Promise<SubjectDocument | null> {
-    return this.subjectModel.findById(id).exec();
+    return this.subjectModel.findById(id).populate('career').exec();
   }
 
   async update(id: string, dto: UpdateSubjectDto | any): Promise<any> {
@@ -204,6 +204,7 @@ export class SubjectsService {
     };
   }
   
+  // Métodos para ExcelService
   async findByCode(code: string): Promise<any> {
     const subject = await this.subjectModel.findOne({ 
       code: { $regex: `^${code}$`, $options: 'i' } 
@@ -226,30 +227,56 @@ export class SubjectsService {
     return { success: false, message: 'Materia no encontrada' };
   }
 
+  async findByNameOrCode(search: string): Promise<any> {
+    const subject = await this.subjectModel.findOne({
+      $or: [
+        { code: { $regex: `^${search}$`, $options: 'i' } },
+        { name: { $regex: search, $options: 'i' } }
+      ]
+    })
+    .populate('career', 'name code')
+    .exec();
+
+    if (subject) {
+      return {
+        success: true,
+        data: {
+          ...subject.toObject(),
+          status: subject.active ? 'active' : 'inactive',
+          careerId: subject.career ? (subject.career as any)._id?.toString() : null,
+          careerName: (subject.career as any)?.['name'] || 'Desconocida'
+        }
+      };
+    }
+    
+    return { success: false, message: 'Materia no encontrada' };
+  }
+
   async findSubjectByCodeSimple(code: string): Promise<SubjectDocument | null> {
     return this.subjectModel.findOne({ 
       code: { $regex: `^${code}$`, $options: 'i' } 
-    }).exec();
+    }).populate('career').exec();
   }
-  async findByName(name: string): Promise<any> {
-  const subject = await this.subjectModel.findOne({ 
-    name: { $regex: `^${name}$`, $options: 'i' } 
-  })
-  .populate('career', 'name code')
-  .exec();
 
-  if (subject) {
-    return {
-      success: true,
-      data: {
-        ...subject.toObject(),
-        status: subject.active ? 'active' : 'inactive',
-        careerId: subject.career ? (subject.career as any)._id?.toString() : null,
-        careerName: (subject.career as any)?.['name'] || 'Desconocida'
-      }
-    };
+  async findByName(name: string): Promise<any> {
+    const subject = await this.subjectModel.findOne({ 
+      name: { $regex: `^${name}$`, $options: 'i' } 
+    })
+    .populate('career', 'name code')
+    .exec();
+
+    if (subject) {
+      return {
+        success: true,
+        data: {
+          ...subject.toObject(),
+          status: subject.active ? 'active' : 'inactive',
+          careerId: subject.career ? (subject.career as any)._id?.toString() : null,
+          careerName: (subject.career as any)?.['name'] || 'Desconocida'
+        }
+      };
+    }
+    
+    return { success: false, message: 'Materia no encontrada' };
   }
-  
-  return { success: false, message: 'Materia no encontrada' };
-}
 }

@@ -1,4 +1,3 @@
-// excel.service.ts - Versión corregida con tipos
 import { Injectable, BadRequestException, Logger } from '@nestjs/common';
 import * as XLSX from 'xlsx';
 import { Types } from 'mongoose';
@@ -181,26 +180,60 @@ export class ExcelService {
     return null;
   }
 
-  /** Extraer documento de respuesta de servicio */
+  /** Extraer documento de respuesta de servicio - CORREGIDO */
   private extractDocumentFromResponse<T = any>(response: any): T | null {
     if (!response) return null;
     
-    // Si es documento directo
-    if (response._id) {
+    // Si es documento directo de Mongoose (tiene método save)
+    if (response._id && typeof response.save === 'function') {
       return response as T;
     }
     
     // Si es respuesta con formato {success, data}
     if (response.success && response.data) {
+      // Si data es un documento de Mongoose
+      if (response.data._id && typeof response.data.save === 'function') {
+        return response.data as T;
+      }
+      // Si data es un objeto plano
+      if (response.data._id) {
+        return response.data as T;
+      }
+    }
+    
+    // Si es un array de documentos
+    if (Array.isArray(response)) {
+      return response as T;
+    }
+    
+    // Si es un array dentro de data
+    if (response.success && response.data && Array.isArray(response.data)) {
       return response.data as T;
     }
     
-    // Si es respuesta con formato {success, data: {data: {...}}}
-    if (response.success && response.data && response.data.data) {
-      return response.data.data as T;
-    }
-    
     return null;
+  }
+
+  /** Método auxiliar para buscar materia por código - NUEVO */
+  private async findSubjectByCode(code: string): Promise<SubjectDocument | null> {
+    try {
+      // Usar el método simplificado que devuelve directamente el documento
+      const response = await this.subjectsService.findSubjectByCodeSimple(code);
+      return response;
+    } catch (error) {
+      this.logger.error(`Error buscando materia por código ${code}:`, error);
+      return null;
+    }
+  }
+
+  /** Método auxiliar para buscar grupo por código - NUEVO */
+  private async findGroupByCode(code: string): Promise<GroupDocument | null> {
+    try {
+      return await this.groupsService.findByCode(code);
+    } catch (error) {
+      this.logger.error(`Error buscando grupo por código ${code}:`, error);
+      return null;
+    }
   }
 
   /** Método principal */
@@ -476,7 +509,7 @@ export class ExcelService {
     return result;
   }
 
-  /** Importar materias */
+  /** Importar materias - CORREGIDO */
   private async importSubjects(data: any[]): Promise<SheetResult> {
     const result: SheetResult = { created: 0, updated: 0, errors: [] };
     
@@ -523,18 +556,17 @@ export class ExcelService {
           active: true,
         };
 
-        // Buscar si ya existe por código
-        const subjectResponse = await this.subjectsService.findByCode(subjectCode);
-        const existingSubject = this.extractDocumentFromResponse<SubjectDocument>(subjectResponse);
+        // Buscar si ya existe por código usando el método simplificado
+        const existingSubject = await this.findSubjectByCode(subjectCode);
         
         if (existingSubject && existingSubject._id) {
-          // Actualizar
-          await this.subjectsService.update(existingSubject._id.toString(), subjectData);
+          // Actualizar usando updateSimple
+          await this.subjectsService.updateSimple(existingSubject._id.toString(), subjectData);
           result.updated++;
           this.logger.log(`🔄 Materia actualizada: ${subjectName}`);
         } else {
-          // Crear nueva
-          await this.subjectsService.create(subjectData);
+          // Crear nueva usando createSimple
+          await this.subjectsService.createSimple(subjectData);
           result.created++;
           this.logger.log(`✅ Materia creada: ${subjectName}`);
         }
@@ -547,7 +579,7 @@ export class ExcelService {
     return result;
   }
 
-  /** Importar grupos */
+  /** Importar grupos - CORREGIDO */
   private async importGroups(data: any[]): Promise<SheetResult> {
     const result: SheetResult = { created: 0, updated: 0, errors: [] };
     
@@ -579,25 +611,25 @@ export class ExcelService {
         const groupCode = code ? code.toString().trim() : 
                          `GRP-${this.generateCodeFromName(groupName)}`;
 
-        // Buscar materia
+        // Buscar materia usando el método auxiliar
         let subjectDoc: SubjectDocument | null = null;
-        
-        // Primero buscar por código
-        const subjectByCodeResponse = await this.subjectsService.findByCode(subject.toString());
-        subjectDoc = this.extractDocumentFromResponse<SubjectDocument>(subjectByCodeResponse);
+        subjectDoc = await this.findSubjectByCode(subject.toString());
         
         // Si no encuentra por código, buscar en todas
         if (!subjectDoc) {
-          const allSubjectsResponse = await this.subjectsService.findAll();
-          const allSubjects = this.extractDocumentFromResponse<SubjectDocument[]>(allSubjectsResponse);
-          
-          if (Array.isArray(allSubjects)) {
-            const foundSubject = allSubjects.find((s: any) => 
-              (s.name && s.name.toLowerCase() === subject.toString().toLowerCase()) || 
-              (s.code && s.code.toLowerCase() === subject.toString().toLowerCase())
-            ) as SubjectDocument;
+          try {
+            const allSubjects = await this.subjectsService.findAllSimple();
             
-            subjectDoc = foundSubject || null;
+            if (Array.isArray(allSubjects)) {
+              const foundSubject = allSubjects.find((s: any) => 
+                (s.name && s.name.toLowerCase() === subject.toString().toLowerCase()) || 
+                (s.code && s.code.toLowerCase() === subject.toString().toLowerCase())
+              );
+              
+              subjectDoc = foundSubject || null;
+            }
+          } catch (error) {
+            this.logger.warn(`Error buscando en todas las materias:`, error);
           }
         }
 
@@ -636,32 +668,13 @@ export class ExcelService {
           }
         }
 
-        // Buscar si ya existe el grupo por código
+        // Buscar si ya existe el grupo por código usando el método auxiliar
         let existingGroup: GroupDocument | null = null;
-        
-        try {
-          // Obtener todos los grupos
-          const allGroupsResponse = await this.groupsService.findAll();
-          let allGroups: GroupDocument[] = [];
-          
-          if (Array.isArray(allGroupsResponse)) {
-            allGroups = allGroupsResponse as GroupDocument[];
-          } else {
-            allGroups = this.extractDocumentFromResponse<GroupDocument[]>(allGroupsResponse) || [];
-          }
-          
-          // Buscar por código
-          existingGroup = allGroups.find((g: GroupDocument) => 
-            g.code && g.code.toLowerCase() === groupCode.toLowerCase()
-          ) || null;
-
-        } catch (error) {
-          this.logger.warn(`Error buscando grupos: ${error}`);
-        }
+        existingGroup = await this.findGroupByCode(groupCode);
 
         if (existingGroup && existingGroup._id) {
-          // Actualizar grupo existente
-          await this.groupsService.update(existingGroup._id.toString(), groupData);
+          // Actualizar grupo existente usando updateSimple
+          await this.groupsService.updateSimple(existingGroup._id.toString(), groupData);
           result.updated++;
           this.logger.log(`🔄 Grupo actualizado: ${groupName}`);
           
@@ -670,9 +683,8 @@ export class ExcelService {
             await this.assignStudents(existingGroup._id.toString(), students.toString(), rowNumber, result);
           }
         } else {
-          // Crear nuevo grupo
-          const createResponse = await this.groupsService.create(groupData);
-          const newGroup = this.extractDocumentFromResponse<GroupDocument>(createResponse);
+          // Crear nuevo grupo usando createSimple
+          const newGroup = await this.groupsService.createSimple(groupData);
           
           if (newGroup && newGroup._id) {
             result.created++;

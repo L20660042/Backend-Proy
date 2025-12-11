@@ -53,7 +53,7 @@ export class GroupsService {
 
   async findAllSimple(): Promise<GroupDocument[]> {
     // Método simplificado para ExcelService
-    return this.groupModel.find().exec();
+    return this.groupModel.find().populate('subject').populate('career').exec();
   }
 
   /** Obtener un grupo por ID */
@@ -70,7 +70,7 @@ export class GroupsService {
   }
 
   async findOneSimple(id: string): Promise<GroupDocument | null> {
-    return this.groupModel.findById(id);
+    return this.groupModel.findById(id).populate('subject').populate('career').exec();
   }
 
   /** Actualizar grupo */
@@ -155,11 +155,12 @@ export class GroupsService {
     return group.save();
   }
 
+  // Métodos para ExcelService
   /** Buscar grupo por código */
   async findByCode(code: string): Promise<GroupDocument | null> {
     return this.groupModel.findOne({ 
       code: { $regex: `^${code}$`, $options: 'i' } 
-    }).exec();
+    }).populate('subject').populate('career').exec();
   }
 
   /** Buscar grupos por materia */
@@ -168,5 +169,11 @@ export class GroupsService {
       subject: new Types.ObjectId(subjectId) 
     }).exec();
   }
-  
+
+  /** Buscar grupos por carrera */
+  async findByCareer(careerId: string): Promise<GroupDocument[]> {
+    return this.groupModel.find({ 
+      career: new Types.ObjectId(careerId) 
+    }).exec();
+  }
 }
