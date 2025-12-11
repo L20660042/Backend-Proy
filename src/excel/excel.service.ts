@@ -6,6 +6,10 @@ import { CareersService } from '../careers/careers.service';
 import { SubjectsService } from '../subjects/subjects.service';
 import { GroupsService } from '../groups/groups.service';
 import { hashPassword } from '../common/utils';
+import { SubjectDocument } from '../subjects/schemas/subject.schema'; // Importar el tipo real
+import { GroupDocument } from '../groups/schemas/group.schema'; // Importar el tipo real
+import { CareerDocument } from '../careers/schemas/career.schema'; // Importar el tipo real
+import { UserDocument } from '../users/schemas/user.schema'; // Importar el tipo real
 
 interface SheetResult {
   created: number;
@@ -26,51 +30,11 @@ interface ImportResult {
   details: Record<string, SheetResult>;
 }
 
-// Interfaces para los documentos
-interface CareerDocument {
-  _id: Types.ObjectId;
-  name: string;
-  code: string;
-  description?: string;
-  duration?: number;
-  active?: boolean;
-  careerId?: string;
-}
-
-interface UserDocument {
-  _id: Types.ObjectId;
-  email: string;
-  fullName: string;
-  role: string;
-  active?: boolean;
-  career?: Types.ObjectId | CareerDocument;
-  careerId?: string;
-}
-
-interface SubjectDocument {
-  _id: Types.ObjectId;
-  name: string;
-  code: string;
-  career?: Types.ObjectId | CareerDocument;
-  teacher?: Types.ObjectId | UserDocument;
-  credits?: number;
-  semester?: number;
-  active?: boolean;
-  careerId?: string;
-}
-
-interface GroupDocument {
-  _id: Types.ObjectId;
-  name: string;
-  code: string;
-  subject: Types.ObjectId | SubjectDocument;
-  teacher?: Types.ObjectId | UserDocument;
-  career?: Types.ObjectId | CareerDocument;
-  students?: Types.ObjectId[] | UserDocument[];
-  schedule?: string;
-  capacity?: number;
-  active?: boolean;
-}
+// Usar los tipos reales importados en lugar de interfaces locales
+type ExcelSubjectDocument = SubjectDocument;
+type ExcelGroupDocument = GroupDocument;
+type ExcelCareerDocument = CareerDocument;
+type ExcelUserDocument = UserDocument;
 
 @Injectable()
 export class ExcelService {
@@ -184,18 +148,14 @@ export class ExcelService {
   private extractDocumentFromResponse<T = any>(response: any): T | null {
     if (!response) return null;
     
-    // Si es documento directo de Mongoose (tiene método save)
-    if (response._id && typeof response.save === 'function') {
+    // Si es documento directo de Mongoose
+    if (response._id) {
       return response as T;
     }
     
     // Si es respuesta con formato {success, data}
     if (response.success && response.data) {
-      // Si data es un documento de Mongoose
-      if (response.data._id && typeof response.data.save === 'function') {
-        return response.data as T;
-      }
-      // Si data es un objeto plano
+      // Si data tiene _id, es un documento
       if (response.data._id) {
         return response.data as T;
       }
@@ -214,22 +174,23 @@ export class ExcelService {
     return null;
   }
 
-  /** Método auxiliar para buscar materia por código - NUEVO */
-  private async findSubjectByCode(code: string): Promise<SubjectDocument | null> {
+  /** Método auxiliar para buscar materia por código - CORREGIDO */
+  private async findSubjectByCode(code: string): Promise<ExcelSubjectDocument | null> {
     try {
       // Usar el método simplificado que devuelve directamente el documento
       const response = await this.subjectsService.findSubjectByCodeSimple(code);
-      return response;
+      return response as ExcelSubjectDocument;
     } catch (error) {
       this.logger.error(`Error buscando materia por código ${code}:`, error);
       return null;
     }
   }
 
-  /** Método auxiliar para buscar grupo por código - NUEVO */
-  private async findGroupByCode(code: string): Promise<GroupDocument | null> {
+  /** Método auxiliar para buscar grupo por código - CORREGIDO */
+  private async findGroupByCode(code: string): Promise<ExcelGroupDocument | null> {
     try {
-      return await this.groupsService.findByCode(code);
+      const response = await this.groupsService.findByCode(code);
+      return response as ExcelGroupDocument;
     } catch (error) {
       this.logger.error(`Error buscando grupo por código ${code}:`, error);
       return null;
@@ -381,7 +342,7 @@ export class ExcelService {
 
         // Buscar si ya existe
         const careerResponse = await this.careersService.findByNameOrCode(careerCode);
-        const existingCareer = this.extractDocumentFromResponse<CareerDocument>(careerResponse);
+        const existingCareer = this.extractDocumentFromResponse<ExcelCareerDocument>(careerResponse);
         
         if (existingCareer && existingCareer._id) {
           // Actualizar
@@ -474,7 +435,7 @@ export class ExcelService {
         // Buscar carrera si se especifica
         if (career && career.toString().trim()) {
           const careerResponse = await this.careersService.findByNameOrCode(career.toString());
-          const careerDoc = this.extractDocumentFromResponse<CareerDocument>(careerResponse);
+          const careerDoc = this.extractDocumentFromResponse<ExcelCareerDocument>(careerResponse);
           
           if (careerDoc && careerDoc._id) {
             userData.career = careerDoc._id;
@@ -484,7 +445,7 @@ export class ExcelService {
         }
 
         // Verificar si usuario ya existe
-        const existingUser = await this.usersService.findByEmail(emailStr) as UserDocument;
+        const existingUser = await this.usersService.findByEmail(emailStr) as ExcelUserDocument;
         
         if (existingUser && existingUser._id) {
           // Actualizar (mantener contraseña existente si no se proporciona)
@@ -540,7 +501,7 @@ export class ExcelService {
 
         // Buscar carrera
         const careerResponse = await this.careersService.findByNameOrCode(career.toString());
-        const careerDoc = this.extractDocumentFromResponse<CareerDocument>(careerResponse);
+        const careerDoc = this.extractDocumentFromResponse<ExcelCareerDocument>(careerResponse);
         
         if (!careerDoc || !careerDoc._id) {
           result.errors.push(`Fila ${rowNumber}: Carrera "${career}" no encontrada`);
@@ -556,7 +517,7 @@ export class ExcelService {
           active: true,
         };
 
-        // Buscar si ya existe por código usando el método simplificado
+        // Buscar si ya existe por código usando el método auxiliar
         const existingSubject = await this.findSubjectByCode(subjectCode);
         
         if (existingSubject && existingSubject._id) {
@@ -612,7 +573,7 @@ export class ExcelService {
                          `GRP-${this.generateCodeFromName(groupName)}`;
 
         // Buscar materia usando el método auxiliar
-        let subjectDoc: SubjectDocument | null = null;
+        let subjectDoc: ExcelSubjectDocument | null = null;
         subjectDoc = await this.findSubjectByCode(subject.toString());
         
         // Si no encuentra por código, buscar en todas
@@ -624,7 +585,7 @@ export class ExcelService {
               const foundSubject = allSubjects.find((s: any) => 
                 (s.name && s.name.toLowerCase() === subject.toString().toLowerCase()) || 
                 (s.code && s.code.toLowerCase() === subject.toString().toLowerCase())
-              );
+              ) as ExcelSubjectDocument;
               
               subjectDoc = foundSubject || null;
             }
@@ -660,7 +621,7 @@ export class ExcelService {
 
         // Buscar profesor por email
         if (teacher && teacher.toString().trim()) {
-          const teacherUser = await this.usersService.findByEmail(teacher.toString()) as UserDocument;
+          const teacherUser = await this.usersService.findByEmail(teacher.toString()) as ExcelUserDocument;
           if (teacherUser && teacherUser._id) {
             groupData.teacher = teacherUser._id;
           } else {
@@ -669,7 +630,7 @@ export class ExcelService {
         }
 
         // Buscar si ya existe el grupo por código usando el método auxiliar
-        let existingGroup: GroupDocument | null = null;
+        let existingGroup: ExcelGroupDocument | null = null;
         existingGroup = await this.findGroupByCode(groupCode);
 
         if (existingGroup && existingGroup._id) {
@@ -684,7 +645,7 @@ export class ExcelService {
           }
         } else {
           // Crear nuevo grupo usando createSimple
-          const newGroup = await this.groupsService.createSimple(groupData);
+          const newGroup = await this.groupsService.createSimple(groupData) as ExcelGroupDocument;
           
           if (newGroup && newGroup._id) {
             result.created++;
@@ -718,7 +679,7 @@ export class ExcelService {
       const studentIds: string[] = [];
       
       for (const email of studentEmails) {
-        const student = await this.usersService.findByEmail(email) as UserDocument;
+        const student = await this.usersService.findByEmail(email) as ExcelUserDocument;
         if (student && student._id) {
           studentIds.push(student._id.toString());
           this.logger.log(`👤 Estudiante encontrado: ${email} -> ${student._id}`);
