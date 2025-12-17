@@ -5,19 +5,16 @@ import { ExtractJwt, Strategy } from 'passport-jwt';
 @Injectable()
 export class JwtStrategy extends PassportStrategy(Strategy) {
   constructor() {
+    const secret = process.env.JWT_SECRET;
+    if (!secret) throw new Error('JWT_SECRET is required');
+
     super({
       jwtFromRequest: ExtractJwt.fromAuthHeaderAsBearerToken(),
-      ignoreExpiration: false,
-      secretOrKey: 'TU_SECRETO_JWT_CAMBIA_ESTA_CADENA', // pásalo luego a .env
+      secretOrKey: secret,
     });
   }
 
-  async validate(payload: any) {
-    // lo que regrese aquí se mete como req.user
-    return {
-      userId: payload.sub,
-      username: payload.username,
-      roles: payload.roles,
-    };
+  validate(payload: any) {
+    return payload;
   }
 }

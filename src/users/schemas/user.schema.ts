@@ -1,35 +1,26 @@
 import { Prop, Schema, SchemaFactory } from '@nestjs/mongoose';
-import { Document } from 'mongoose';
-import { SystemRole } from '../../auth/roles.enum';
+import { HydratedDocument } from 'mongoose';
+import { Role } from '../../auth/roles.enum';
 
-export type UserDocument = User & Document;
+export type UserDocument = HydratedDocument<User>;
 
-@Schema({ collection: 'users', timestamps: true })
+@Schema({ timestamps: true })
 export class User {
-  @Prop({ required: true, unique: true })
-  username: string;
+  @Prop({ required: true, unique: true, lowercase: true, trim: true })
+  email: string;
 
   @Prop({ required: true })
   passwordHash: string;
 
-  @Prop({ required: true })
-  firstName: string;
+  @Prop({ type: [String], default: [Role.ALUMNO] })
+  roles: Role[];
 
-  @Prop()
-  lastName?: string;
+  @Prop({ type: String, default: 'pending' })
+  status: 'pending' | 'active' | 'disabled';
 
-  @Prop()
-  email?: string;
-
-  @Prop({
-    type: [String],
-    enum: SystemRole,
-    default: [SystemRole.ALUMNO],
-  })
-  roles: SystemRole[];
-
-  @Prop({ default: true })
-  active: boolean;
+  @Prop({ type: String, default: null })
+  linkedEntityId?: string | null;
 }
 
 export const UserSchema = SchemaFactory.createForClass(User);
+UserSchema.index({ email: 1 }, { unique: true });

@@ -1,22 +1,28 @@
 import { Module } from '@nestjs/common';
 import { JwtModule } from '@nestjs/jwt';
 import { PassportModule } from '@nestjs/passport';
-import { AuthService } from './auth.service';
-import { AuthController } from './auth.controller';
 import { UsersModule } from '../users/users.module';
+import { AuthController } from './auth.controller';
+import { AuthService } from './auth.service';
 import { JwtStrategy } from './jwt.strategy';
+
+function getJwtExpiresIn(): number {
+  const raw = process.env.JWT_EXPIRES_IN;
+  const asNumber = raw ? Number(raw) : NaN;
+  return Number.isFinite(asNumber) ? asNumber : 8 * 60 * 60;
+}
 
 @Module({
   imports: [
     UsersModule,
     PassportModule,
     JwtModule.register({
-      secret: 'TU_SECRETO_JWT_CAMBIA_ESTA_CADENA',
-      signOptions: { expiresIn: '8h' },
+      secret: process.env.JWT_SECRET ?? 'dev-secret-change-me',
+      signOptions: { expiresIn: getJwtExpiresIn() },
     }),
   ],
-  providers: [AuthService, JwtStrategy],
   controllers: [AuthController],
-  exports: [AuthService],
+  providers: [AuthService, JwtStrategy],
+  exports: [JwtModule],
 })
 export class AuthModule {}

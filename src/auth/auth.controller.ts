@@ -1,25 +1,13 @@
-import { Controller, Post, Body } from '@nestjs/common';
+import { Body, Controller, Post } from '@nestjs/common';
 import { AuthService } from './auth.service';
-import { CreateUserDto } from '../users/dto/create-user.dto';
+import { LoginDto } from './dto/login.dto';
 
 @Controller('auth')
 export class AuthController {
-  constructor(private readonly authService: AuthService) {}
-
-  // Registro (puedes limitarlo luego por rol o desactivarlo en producción)
-  @Post('register')
-  async register(@Body() dto: CreateUserDto) {
-    return this.authService.register(dto);
-  }
+  constructor(private auth: AuthService) {}
 
   @Post('login')
-  async login(
-    @Body()
-    body: {
-      username: string;
-      password: string;
-    },
-  ) {
-    return this.authService.login(body.username, body.password);
+  login(@Body() dto: LoginDto) {
+    return this.auth.login(dto.email, dto.password);
   }
 }
