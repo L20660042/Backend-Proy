@@ -1,56 +1,35 @@
 import { Prop, Schema, SchemaFactory } from '@nestjs/mongoose';
-import { Document, Types } from 'mongoose';
-import { UserRole } from '../../common/enums';
+import { Document } from 'mongoose';
+import { SystemRole } from '../../auth/roles.enum';
 
 export type UserDocument = User & Document;
 
-@Schema({ timestamps: true })
+@Schema({ collection: 'users', timestamps: true })
 export class User {
+  @Prop({ required: true, unique: true })
+  username: string;
+
   @Prop({ required: true })
-  fullName: string;
+  passwordHash: string;
 
-  @Prop({ required: true, unique: true, lowercase: true })
-  email: string;
-
-  @Prop()
-  phone?: string;
-
-  @Prop({ required: true, default: '' }) // <-- MANTENIDO COMO REQUIRED CON VALOR POR DEFECTO
-  password: string;
-
-  @Prop({
-    enum: UserRole,
-    default: UserRole.ESTUDIANTE,
-  })
-  role: UserRole;
-
-  @Prop({ type: Types.ObjectId, ref: 'Career' })
-  career?: Types.ObjectId;
-
-  @Prop({ type: [{ type: Types.ObjectId, ref: 'Subject' }] })
-  subjects?: Types.ObjectId[];
-
-  @Prop({ type: [{ type: Types.ObjectId, ref: 'Group' }] })
-  groups?: Types.ObjectId[];
-
-  @Prop({ default: true })
-  active: boolean;
-
-  @Prop({ type: Object })
-  meta?: any;
-
-  // Campos adicionales para frontend
-  @Prop()
-  firstName?: string;
+  @Prop({ required: true })
+  firstName: string;
 
   @Prop()
   lastName?: string;
 
   @Prop()
-  institutionId?: string;
+  email?: string;
+
+  @Prop({
+    type: [String],
+    enum: SystemRole,
+    default: [SystemRole.ALUMNO],
+  })
+  roles: SystemRole[];
+
+  @Prop({ default: true })
+  active: boolean;
 }
 
 export const UserSchema = SchemaFactory.createForClass(User);
-
-// Index para buscar por email rápidamente
-UserSchema.index({ email: 1 });

@@ -3,77 +3,47 @@ import {
   Get,
   Post,
   Body,
-  Patch,
   Param,
+  Patch,
   Delete,
-  Req,
-  UseGuards
+  UseGuards,
 } from '@nestjs/common';
-
 import { UsersService } from './users.service';
 import { CreateUserDto } from './dto/create-user.dto';
 import { UpdateUserDto } from './dto/update-user.dto';
-
-import { JwtGuard } from '../auth/jwt.guard';
-import { RolesGuard } from '../auth/roles.guard';
+import { AuthGuard } from '@nestjs/passport';
 import { Roles } from '../auth/roles.decorator';
-import { UserRole } from '../common/enums';
+import { RolesGuard } from '../auth/roles.guard';
+import { SystemRole } from '../auth/roles.enum';
 
-
+@UseGuards(AuthGuard('jwt'), RolesGuard)
+@Roles(SystemRole.ADMIN)
 @Controller('users')
-@UseGuards(JwtGuard, RolesGuard)
 export class UsersController {
   constructor(private readonly usersService: UsersService) {}
 
-  // ======================================================
-  // Crear usuario (solo admin / superadmin)
-  // ======================================================
   @Post()
-  @Roles(UserRole.ADMIN, UserRole.SUPERADMIN)
   create(@Body() dto: CreateUserDto) {
     return this.usersService.create(dto);
   }
 
-  // ======================================================
-  // Obtener todos (RLS aplicado en servicio)
-  // ======================================================
   @Get()
-  findAll(@Req() req) {
-    return this.usersService.findAll(req.user);
+  findAll() {
+    return this.usersService.findAll();
   }
 
-  // ======================================================
-  // Obtener por ID
-  // ======================================================
   @Get(':id')
   findOne(@Param('id') id: string) {
-    return this.usersService.findOne(id);
+    return this.usersService.findById(id);
   }
 
-  // ======================================================
-  // Actualizar usuario
-  // ======================================================
   @Patch(':id')
-  @Roles(UserRole.ADMIN, UserRole.SUPERADMIN)
   update(@Param('id') id: string, @Body() dto: UpdateUserDto) {
     return this.usersService.update(id, dto);
   }
 
-  // ======================================================
-  // Activar/Desactivar usuario
-  // ======================================================
-  @Patch(':id/toggle')
-  @Roles(UserRole.ADMIN, UserRole.SUPERADMIN)
-  toggleActive(@Param('id') id: string) {
-    return this.usersService.toggleActive(id);
-  }
-
-  // ======================================================
-  // Eliminar usuario
-  // ======================================================
   @Delete(':id')
-  @Roles(UserRole.ADMIN, UserRole.SUPERADMIN)
   remove(@Param('id') id: string) {
-    return this.usersService.delete(id);
+    return this.usersService.remove(id);
   }
 }

@@ -1,69 +1,60 @@
-import { Injectable, UnauthorizedException, ConflictException, BadRequestException } from '@nestjs/common';
+import {
+  Injectable,
+  UnauthorizedException,
+} from '@nestjs/common';
+import * as bcrypt from 'bcrypt';
 import { JwtService } from '@nestjs/jwt';
-import { UsersService } from 'src/users/users.service';
-import * as bcrypt from 'bcryptjs';
-import { LoginDto, RegisterDto } from './auth.dto';
-import { CreateUserDto } from 'src/users/dto/create-user.dto';
-import { UserRole } from '../common/enums';
+import { UsersService } from '../users/users.service';
+import { CreateUserDto } from '../users/dto/create-user.dto';
+import { SystemRole } from './roles.enum';
+import { UserDocument } from '../users/schemas/user.schema';
 
 @Injectable()
 export class AuthService {
   constructor(
-    private userService: UsersService,
-    private jwt: JwtService,
+    private readonly usersService: UsersService,
+    private readonly jwtService: JwtService,
   ) {}
 
-  async register(dto: RegisterDto) {
-    const exists = await this.userService.findByEmail(dto.email);
-    if (exists) throw new ConflictException('El email ya está registrado');
-
-    const hashed = await bcrypt.hash(dto.password, 10);
-
-    // Normalizar role: si viene como string válido, usarlo; si no, poner ESTUDIANTE por defecto
-    let role: UserRole = UserRole.ESTUDIANTE;
-    if (dto.role && Object.values(UserRole).includes(dto.role as UserRole)) {
-      role = dto.role as UserRole;
-    }
-
-    const createDto: CreateUserDto = {
-      fullName: dto.name,
-      email: dto.email.toLowerCase(),
-      password: hashed,
-      role,
-    };
-
-    const user = await this.userService.create(createDto);
-
-    return {
-      message: 'Usuario creado correctamente',
-      user,
-    };
-  }
-
-  async login(dto: LoginDto) {
-    const user = await this.userService.findByEmail(dto.email);
-
-    if (!user) throw new UnauthorizedException('Credenciales inválidas');
-
-    // Verificar que el usuario tenga contraseña no vacía
-    if (!user.password || user.password.trim() === '') {
-      throw new UnauthorizedException('Usuario no tiene contraseña configurada');
-    }
-
-    // Comparar contraseñas - ahora password siempre es string (gracias al schema)
-    const match = await bcrypt.compare(dto.password, user.password);
-
-    if (!match) throw new UnauthorizedException('Credenciales inválidas');
-
-    const token = this.jwt.sign({
-      _id: user._id,
-      email: user.email,
-      role: user.role,
+  // Registro (si decides permitirlo desde la API)
+  async register(dto: CreateUserDto) {
+    const user = await this.usersService.create({
+      ...dto,
+      roles: dto.roles?.length ? dto.roles : [SystemRole.ALUMNO],
     });
 
+    // user es UserDocument -> usamos _id
+    const userId = (user._id as unknown as string).toString();
+
+    return this.buildToken(userId, user.username, user.roles);
+  }
+
+  async validateUser(username: string, pass: string): Promise<UserDocument> {
+    const user = await this.usersService.findByUsername(username);
+    if (!user || !user.active) {
+      throw new UnauthorizedException('Usuario o contraseña incorrectos');
+    }
+
+    const isMatch = await bcrypt.compare(pass, user.passwordHash);
+    if (!isMatch) {
+      throw new UnauthorizedException('Usuario o contraseña incorrectos');
+    }
+
+    return user;
+  }
+
+  async login(username: string, pass: string) {
+    const user = await this.validateUser(username, pass);
+
+    const userId = (user._id as unknown as string).toString();
+
+    return this.buildToken(userId, user.username, user.roles);
+  }
+
+  private buildToken(userId: string, username: string, roles: SystemRole[]) {
+    const payload = { sub: userId, username, roles };
     return {
-      token,
-      user,
+      access_token: this.jwtService.sign(payload),
     };
   }
 }

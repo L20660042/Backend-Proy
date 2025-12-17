@@ -1,10 +1,42 @@
-import { PartialType } from '@nestjs/mapped-types';
-import { CreateUserDto } from './create-user.dto';
-import { IsString, MinLength, ValidateIf } from 'class-validator';
+import {
+  IsString,
+  MinLength,
+  IsOptional,
+  IsEmail,
+  IsArray,
+  IsEnum,
+  IsBoolean,
+} from 'class-validator';
+import { SystemRole } from '../../auth/roles.enum';
 
-export class UpdateUserDto extends PartialType(CreateUserDto) {
-  @ValidateIf(o => o.password !== undefined && o.password !== '') // Solo valida si se proporciona y no está vacía
+export class UpdateUserDto {
+  @IsString()
+  @IsOptional()
+  username?: string;
+
   @IsString()
   @MinLength(6)
+  @IsOptional()
   password?: string;
+
+  @IsString()
+  @IsOptional()
+  firstName?: string;
+
+  @IsString()
+  @IsOptional()
+  lastName?: string;
+
+  @IsEmail()
+  @IsOptional()
+  email?: string;
+
+  @IsArray()
+  @IsEnum(SystemRole, { each: true })
+  @IsOptional()
+  roles?: SystemRole[];
+
+  @IsBoolean()
+  @IsOptional()
+  active?: boolean;
 }
