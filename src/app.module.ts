@@ -5,6 +5,16 @@ import { HealthModule } from './health/health.module';
 import { UsersModule } from './users/users.module';
 import { AuthModule } from './auth/auth.module';
 import { SeedModule } from './seed/seed.module';
+import { PeriodsModule } from './academic/periods/periods.module';
+import { CareersModule } from './academic/careers/careers.module';
+import { SubjectsModule } from './academic/subjects/subjects.module';
+import { GroupsModule } from './academic/groups/groups.module';
+import { TeachersModule } from './academic/teachers/teachers.module';
+import { StudentsModule } from './academic/students/students.module';
+import { EnrollmentsModule } from './academic/enrollments/enrollments.module';
+import { ClassAssignmentsModule } from './academic/class-assignments/class-assignments.module';
+import { ScheduleBlocksModule } from './academic/schedule-blocks/schedule-blocks.module';
+import { ScheduleModule } from './academic/schedule/schedule.module';
 
 
 @Module({
@@ -20,6 +30,16 @@ import { SeedModule } from './seed/seed.module';
     UsersModule,
     AuthModule,
     SeedModule,
+    PeriodsModule,
+    CareersModule,
+    SubjectsModule,
+    GroupsModule,
+    TeachersModule,
+    StudentsModule,
+    EnrollmentsModule,
+    ClassAssignmentsModule,
+    ScheduleBlocksModule,
+    ScheduleModule,
   ],
 })
 export class AppModule {}
