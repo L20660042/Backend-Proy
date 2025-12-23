@@ -10,7 +10,7 @@ export class CreateUserDto {
 
   @IsArray()
   @IsString({ each: true })
-  roles: string[]; // ejemplo: ["SUPERADMIN"] | ["DOCENTE"] | ["ALUMNO"]
+  roles: string[];
 
   @IsOptional()
   @IsIn(['active', 'disabled', 'pending'])
@@ -19,4 +19,14 @@ export class CreateUserDto {
   @IsOptional()
   @IsString()
   linkedEntityId?: string;
+
+  @IsOptional()
+  @IsString()
+  @MinLength(3)
+  teacherName?: string;
+
+  @IsOptional()
+  @IsString()
+  @MinLength(3)
+  employeeNumber?: string;
 }

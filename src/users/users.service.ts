@@ -5,10 +5,14 @@ import * as bcrypt from 'bcrypt';
 import { CreateUserDto } from './dto/create-user.dto';
 import { UpdateUserDto } from './dto/update-user.dto';
 import { User, UserDocument } from './schemas/user.schema';
+import { TeachersService } from '../academic/teachers/teachers.service';
 
 @Injectable()
 export class UsersService {
-  constructor(@InjectModel(User.name) private readonly userModel: Model<UserDocument>) {}
+  constructor(
+    @InjectModel(User.name) private readonly userModel: Model<UserDocument>,
+    private readonly teachersService: TeachersService,
+  ) {}
 
   async findByEmail(email: string) {
     const q = this.userModel.findOne({ email: email.trim().toLowerCase() });
@@ -27,15 +31,12 @@ export class UsersService {
     if (!password) throw new BadRequestException('password requerido');
 
     const rolesRaw: any = (dto as any).roles;
-    const rolesArr: string[] = Array.isArray(rolesRaw)
-      ? rolesRaw
-      : rolesRaw
-        ? [rolesRaw]
-        : [];
-
+    const rolesArr: string[] = Array.isArray(rolesRaw) ? rolesRaw : rolesRaw ? [rolesRaw] : [];
     if (rolesArr.length === 0) throw new BadRequestException('roles requerido');
 
-    // linkedEntityId como string (tu schema es String)
+    const rolesUpper = rolesArr.map((r) => String(r).toUpperCase());
+
+    // linkedEntityId
     let linkedEntityId: string | null = null;
     const linkedRaw = (dto as any).linkedEntityId;
 
@@ -47,11 +48,35 @@ export class UsersService {
       linkedEntityId = s;
     }
 
+    // ====== AUTO-CREAR TEACHER SI ES DOCENTE Y NO VIENE linkedEntityId ======
+    let createdTeacherId: string | null = null;
+
+    if (!linkedEntityId && rolesUpper.includes('DOCENTE')) {
+      const teacherName = String(dto.teacherName ?? email.split('@')[0] ?? '').trim();
+      const employeeNumber = String(dto.employeeNumber ?? '').trim();
+
+      if (!employeeNumber) {
+        throw new BadRequestException('employeeNumber requerido para crear docente automáticamente');
+      }
+      if (!teacherName || teacherName.length < 3) {
+        throw new BadRequestException('teacherName requerido (mínimo 3 caracteres) para crear docente automáticamente');
+      }
+
+      const teacher = await this.teachersService.create({
+        name: teacherName,
+        employeeNumber,
+        status: 'active',
+      } as any);
+
+      createdTeacherId = String((teacher as any)._id);
+      linkedEntityId = createdTeacherId;
+    }
+
     try {
       const doc = await this.userModel.create({
         email,
         passwordHash: await bcrypt.hash(password, 10),
-        roles: rolesArr.map((r) => String(r).toUpperCase()),
+        roles: rolesUpper,
         status: (dto as any).status ?? 'active',
         linkedEntityId,
       });
@@ -60,17 +85,20 @@ export class UsersService {
       delete user.passwordHash;
       return user;
     } catch (err: any) {
-      // Email duplicado (índice unique)
-      if (err?.code === 11000) {
-        if (err?.keyPattern?.email) {
-          throw new BadRequestException('El email ya existe');
+      // rollback teacher si el user falló (ej: email duplicado)
+      if (createdTeacherId) {
+        try {
+          await this.teachersService.remove(createdTeacherId);
+        } catch (_) {
+          // ignorar
         }
+      }
+
+      if (err?.code === 11000) {
+        if (err?.keyPattern?.email) throw new BadRequestException('El email ya existe');
         throw new BadRequestException('Campo único duplicado');
       }
-      // Validación de Mongoose (enum, required, etc.)
-      if (err?.name === 'ValidationError') {
-        throw new BadRequestException(err.message);
-      }
+      if (err?.name === 'ValidationError') throw new BadRequestException(err.message);
       throw err;
     }
   }

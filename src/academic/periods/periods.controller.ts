@@ -23,6 +23,12 @@ export class PeriodsController {
     return this.service.findAll();
   }
 
+  // NUEVO: GET /academic/periods/active
+  @Get('active')
+  findActive() {
+    return this.service.findActive();
+  }
+
   @Get(':id')
   findOne(@Param('id') id: string) {
     return this.service.findOne(id);

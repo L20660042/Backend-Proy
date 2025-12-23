@@ -78,4 +78,14 @@ export class EnrollmentsService {
     if (!deleted) throw new NotFoundException('Inscripción no encontrada');
     return { deleted: true };
   }
+  async findActiveByStudentAndPeriod(periodId: string, studentId: string) {
+  return this.model
+    .findOne({
+      periodId: new Types.ObjectId(periodId),
+      studentId: new Types.ObjectId(studentId),
+      status: 'active',
+    })
+    .exec();
+}
+
 }
