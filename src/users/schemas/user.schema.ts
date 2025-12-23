@@ -16,7 +16,7 @@ export class User {
   roles: Role[];
 
   @Prop({ type: String, default: 'pending' })
-  status: 'pending' | 'active' | 'disabled';
+  status: 'pending' | 'active' | 'inactive';
 
   @Prop({ type: String, default: null })
   linkedEntityId?: string | null;
