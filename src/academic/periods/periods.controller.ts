@@ -8,25 +8,21 @@ import { Roles } from '../../auth/roles.decorator';
 import { Role } from '../../auth/roles.enum';
 
 @UseGuards(JwtAuthGuard, RolesGuard)
-@Roles(Role.SUPERADMIN, Role.ADMIN, Role.SERVICIOS_ESCOLARES)
 @Controller('academic/periods')
 export class PeriodsController {
   constructor(private readonly service: PeriodsService) {}
 
+  // Solo admins crean
+  @Roles(Role.SUPERADMIN, Role.ADMIN, Role.SERVICIOS_ESCOLARES)
   @Post()
   create(@Body() dto: CreatePeriodDto) {
     return this.service.create(dto);
   }
 
+  // CUALQUIER USUARIO AUTENTICADO puede leer periodos
   @Get()
   findAll() {
     return this.service.findAll();
-  }
-
-  // NUEVO: GET /academic/periods/active
-  @Get('active')
-  findActive() {
-    return this.service.findActive();
   }
 
   @Get(':id')
@@ -34,11 +30,15 @@ export class PeriodsController {
     return this.service.findOne(id);
   }
 
+  // Solo admins editan
+  @Roles(Role.SUPERADMIN, Role.ADMIN, Role.SERVICIOS_ESCOLARES)
   @Patch(':id')
   update(@Param('id') id: string, @Body() dto: UpdatePeriodDto) {
     return this.service.update(id, dto);
   }
 
+  // Solo admins borran
+  @Roles(Role.SUPERADMIN, Role.ADMIN, Role.SERVICIOS_ESCOLARES)
   @Delete(':id')
   remove(@Param('id') id: string) {
     return this.service.remove(id);

@@ -1,53 +1,74 @@
-import { Injectable, NotFoundException, ForbiddenException } from '@nestjs/common';
-import { EnrollmentsService } from '../enrollments/enrollments.service';
+import { Injectable, NotFoundException, ForbiddenException, BadRequestException } from '@nestjs/common';
 import { ScheduleBlocksService } from '../schedule-blocks/schedule-blocks.service';
+import { CourseEnrollmentsService } from '../course-enrollments/course-enrollments.service';
 
 @Injectable()
 export class ScheduleService {
   constructor(
-    private readonly enrollments: EnrollmentsService,
+    private readonly courseEnrollments: CourseEnrollmentsService,
     private readonly blocks: ScheduleBlocksService,
   ) {}
 
   async getTeacherSchedule(periodId: string, teacherId: string) {
+    if (!periodId) throw new BadRequestException('periodId requerido');
     return this.blocks.findAll({ periodId, teacherId });
   }
 
   async getGroupSchedule(periodId: string, groupId: string) {
+    if (!periodId) throw new BadRequestException('periodId requerido');
     return this.blocks.findAll({ periodId, groupId });
   }
 
   async getStudentSchedule(periodId: string, studentId: string) {
-    const enrollment = await this.enrollments.findActiveByStudentAndPeriod(periodId, studentId);
+    if (!periodId) throw new BadRequestException('periodId requerido');
 
-    if (!enrollment) {
-      throw new NotFoundException('El alumno no tiene inscripción activa en ese periodo');
+    const ces = await this.courseEnrollments.findActiveByStudentAndPeriod(periodId, studentId);
+
+    if (!ces || ces.length === 0) {
+      throw new NotFoundException('El alumno no tiene materias inscritas (course-enrollments) en ese periodo');
     }
 
-    // Horario de clases del grupo donde está inscrito
-    return this.blocks.findAll({ periodId, groupId: String(enrollment.groupId) });
-  }
-  async getMySchedule(user: any, periodId: string) {
-  const roles: string[] = (user?.roles ?? []).map((r: any) => String(r).toUpperCase());
-  const linkedEntityId: string | null = user?.linkedEntityId ?? null;
+    // Deduplicar triples por si hay registros repetidos por errores previos
+    const seen = new Set<string>();
+    const triples: Array<{ groupId: string; subjectId: string; teacherId: string }> = [];
 
-  if (!linkedEntityId) {
-    // Sin vínculo, no se puede resolver "mi horario"
-    throw new ForbiddenException('El usuario no tiene linkedEntityId');
-  }
+    for (const ce of ces as any[]) {
+      const groupId = String(ce.groupId);
+      const subjectId = String(ce.subjectId);
+      const teacherId = String(ce.teacherId);
 
-  // Docente → usa teacherId = linkedEntityId
-  if (roles.includes('DOCENTE')) {
-    return this.getTeacherSchedule(periodId, linkedEntityId);
-  }
+      const key = `${groupId}|${subjectId}|${teacherId}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
 
-  // Alumno/Estudiante → usa studentId = linkedEntityId
-  if (roles.includes('ALUMNO') || roles.includes('ESTUDIANTE')) {
-    return this.getStudentSchedule(periodId, linkedEntityId);
+      triples.push({ groupId, subjectId, teacherId });
+    }
+
+    return this.blocks.findByClassTriples({ periodId, triples });
   }
 
-  // Otros roles no tienen "mi horario" por ahora
-  throw new ForbiddenException('Rol no autorizado para consultar /me');
-}
+  // /academic/schedule/me
+  async getMySchedule(user: any, periodId?: string) {
+    const roles: string[] = (user?.roles ?? []).map((r: any) => String(r).toUpperCase());
+    const linkedEntityId: string | null = user?.linkedEntityId ?? null;
 
+    if (!linkedEntityId) {
+      throw new ForbiddenException('El usuario no tiene linkedEntityId');
+    }
+    if (!periodId) {
+      throw new BadRequestException('periodId requerido para /academic/schedule/me');
+    }
+
+    // Docente -> linkedEntityId es teacherId
+    if (roles.includes('DOCENTE')) {
+      return this.getTeacherSchedule(periodId, linkedEntityId);
+    }
+
+    // Alumno -> linkedEntityId es studentId
+    if (roles.includes('ALUMNO') || roles.includes('ESTUDIANTE')) {
+      return this.getStudentSchedule(periodId, linkedEntityId);
+    }
+
+    throw new ForbiddenException('Rol no autorizado para consultar /academic/schedule/me');
+  }
 }

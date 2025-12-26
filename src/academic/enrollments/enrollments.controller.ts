@@ -7,38 +7,35 @@ import { RolesGuard } from '../../auth/roles.guard';
 import { Roles } from '../../auth/roles.decorator';
 import { Role } from '../../auth/roles.enum';
 
-@UseGuards(JwtAuthGuard, RolesGuard)
-@Roles(Role.SUPERADMIN, Role.ADMIN, Role.SERVICIOS_ESCOLARES)
 @Controller('academic/enrollments')
+@UseGuards(JwtAuthGuard, RolesGuard)
 export class EnrollmentsController {
   constructor(private readonly service: EnrollmentsService) {}
 
-  @Post()
-  create(@Body() dto: CreateEnrollmentDto) {
-    return this.service.create(dto);
-  }
-
-  // GET /academic/enrollments?periodId=...&groupId=...&studentId=...&status=active
+  @Roles(Role.SUPERADMIN, Role.ADMIN, Role.SERVICIOS_ESCOLARES)
   @Get()
-  findAll(
+  list(
     @Query('periodId') periodId?: string,
     @Query('groupId') groupId?: string,
     @Query('studentId') studentId?: string,
     @Query('status') status?: string,
   ) {
-    return this.service.findAll({ periodId, groupId, studentId, status });
+    return this.service.list({ periodId, groupId, studentId, status });
   }
 
-  @Get(':id')
-  findOne(@Param('id') id: string) {
-    return this.service.findOne(id);
+  @Roles(Role.SUPERADMIN, Role.ADMIN, Role.SERVICIOS_ESCOLARES)
+  @Post()
+  create(@Body() dto: CreateEnrollmentDto) {
+    return this.service.create(dto);
   }
 
+  @Roles(Role.SUPERADMIN, Role.ADMIN, Role.SERVICIOS_ESCOLARES)
   @Patch(':id')
   update(@Param('id') id: string, @Body() dto: UpdateEnrollmentDto) {
     return this.service.update(id, dto);
   }
 
+  @Roles(Role.SUPERADMIN, Role.ADMIN, Role.SERVICIOS_ESCOLARES)
   @Delete(':id')
   remove(@Param('id') id: string) {
     return this.service.remove(id);

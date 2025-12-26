@@ -1,32 +1,15 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
 import { Model, Types } from 'mongoose';
-import { Enrollment } from './schemas/enrollment.schema';
 import { CreateEnrollmentDto } from './dto/create-enrollment.dto';
 import { UpdateEnrollmentDto } from './dto/update-enrollment.dto';
+import { Enrollment, EnrollmentDocument } from './schemas/enrollment.schema';
 
 @Injectable()
 export class EnrollmentsService {
-  [x: string]: any;
-  constructor(@InjectModel(Enrollment.name) private model: Model<Enrollment>) {}
+  constructor(@InjectModel(Enrollment.name) private readonly model: Model<EnrollmentDocument>) {}
 
-  async create(dto: CreateEnrollmentDto) {
-    try {
-      return await this.model.create({
-        periodId: new Types.ObjectId(dto.periodId),
-        studentId: new Types.ObjectId(dto.studentId),
-        groupId: new Types.ObjectId(dto.groupId),
-        status: dto.status ?? 'active',
-      });
-    } catch (err: any) {
-      if (err?.code === 11000) {
-        throw new BadRequestException('El alumno ya está inscrito en ese periodo');
-      }
-      throw err;
-    }
-  }
-
-  findAll(params?: { periodId?: string; groupId?: string; studentId?: string; status?: string }) {
+  async list(params?: { periodId?: string; groupId?: string; studentId?: string; status?: string }) {
     const filter: any = {};
     if (params?.periodId) filter.periodId = new Types.ObjectId(params.periodId);
     if (params?.groupId) filter.groupId = new Types.ObjectId(params.groupId);
@@ -35,36 +18,30 @@ export class EnrollmentsService {
 
     return this.model
       .find(filter)
-      .populate('studentId', 'name controlNumber')
-      .populate('groupId', 'name semester careerId periodId')
-      .populate('periodId', 'name startDate endDate isActive')
+      .populate('studentId')
+      .populate('groupId')
+      .populate('periodId')
       .sort({ createdAt: -1 })
-      .exec();
+      .lean();
   }
 
-  async findOne(id: string) {
-    const doc = await this.model
-      .findById(id)
-      .populate('studentId', 'name controlNumber')
-      .populate('groupId', 'name semester careerId periodId')
-      .populate('periodId', 'name startDate endDate isActive')
-      .exec();
+  async create(dto: CreateEnrollmentDto) {
+    const periodId = dto.periodId;
+    const studentId = dto.studentId;
+    const groupId = dto.groupId;
 
-    if (!doc) throw new NotFoundException('Inscripción no encontrada');
-    return doc;
-  }
-
-  async update(id: string, dto: UpdateEnrollmentDto) {
-    const update: any = {};
-    if (dto.periodId !== undefined) update.periodId = new Types.ObjectId(dto.periodId);
-    if (dto.studentId !== undefined) update.studentId = new Types.ObjectId(dto.studentId);
-    if (dto.groupId !== undefined) update.groupId = new Types.ObjectId(dto.groupId);
-    if (dto.status !== undefined) update.status = dto.status;
+    if (!Types.ObjectId.isValid(periodId)) throw new BadRequestException('periodId inválido');
+    if (!Types.ObjectId.isValid(studentId)) throw new BadRequestException('studentId inválido');
+    if (!Types.ObjectId.isValid(groupId)) throw new BadRequestException('groupId inválido');
 
     try {
-      const updated = await this.model.findByIdAndUpdate(id, update, { new: true }).exec();
-      if (!updated) throw new NotFoundException('Inscripción no encontrada');
-      return updated;
+      const doc = await this.model.create({
+        periodId,
+        studentId,
+        groupId,
+        status: dto.status ?? 'active',
+      });
+      return doc;
     } catch (err: any) {
       if (err?.code === 11000) {
         throw new BadRequestException('El alumno ya está inscrito en ese periodo');
@@ -73,19 +50,41 @@ export class EnrollmentsService {
     }
   }
 
-  async remove(id: string) {
-    const deleted = await this.model.findByIdAndDelete(id).exec();
-    if (!deleted) throw new NotFoundException('Inscripción no encontrada');
-    return { deleted: true };
-  }
-  async findActiveByStudentAndPeriod(periodId: string, studentId: string) {
-  return this.model
-    .findOne({
-      periodId: new Types.ObjectId(periodId),
-      studentId: new Types.ObjectId(studentId),
-      status: 'active',
-    })
-    .exec();
-}
+  async update(id: string, dto: UpdateEnrollmentDto) {
+    if (!Types.ObjectId.isValid(id)) throw new BadRequestException('ID inválido');
 
+    const update: any = {};
+    if (dto.groupId) {
+      if (!Types.ObjectId.isValid(dto.groupId)) throw new BadRequestException('groupId inválido');
+      update.groupId = dto.groupId;
+    }
+    if (dto.status) update.status = dto.status;
+
+    const doc = await this.model
+      .findByIdAndUpdate(id, update, { new: true, runValidators: true })
+      .populate('studentId')
+      .populate('groupId')
+      .populate('periodId')
+      .lean();
+
+    if (!doc) throw new NotFoundException('Inscripción no encontrada');
+    return doc;
+  }
+
+  async remove(id: string) {
+    if (!Types.ObjectId.isValid(id)) throw new BadRequestException('ID inválido');
+    const doc = await this.model.findByIdAndDelete(id).lean();
+    if (!doc) throw new NotFoundException('Inscripción no encontrada');
+    return { ok: true };
+  }
+
+  async findActiveByStudentAndPeriod(periodId: string, studentId: string) {
+  if (!Types.ObjectId.isValid(periodId) || !Types.ObjectId.isValid(studentId)) return null;
+
+  return this.model.findOne({
+    periodId: new Types.ObjectId(periodId),
+    studentId: new Types.ObjectId(studentId),
+    status: 'active',
+  }).lean();
+}
 }

@@ -11,28 +11,27 @@ import { Role } from '../../auth/roles.enum';
 export class ScheduleController {
   constructor(private readonly service: ScheduleService) {}
 
-  // GET /academic/schedule/teacher?periodId=...&teacherId=...
   @Roles(Role.SUPERADMIN, Role.ADMIN, Role.SERVICIOS_ESCOLARES)
   @Get('teacher')
   teacher(@Query() q: GetTeacherScheduleDto) {
     return this.service.getTeacherSchedule(q.periodId, q.teacherId);
   }
 
-  // GET /academic/schedule/group?periodId=...&groupId=...
   @Roles(Role.SUPERADMIN, Role.ADMIN, Role.SERVICIOS_ESCOLARES)
   @Get('group')
   group(@Query() q: GetGroupScheduleDto) {
     return this.service.getGroupSchedule(q.periodId, q.groupId);
   }
 
-  // GET /academic/schedule/student?periodId=...&studentId=...
   @Roles(Role.SUPERADMIN, Role.ADMIN, Role.SERVICIOS_ESCOLARES)
   @Get('student')
   student(@Query() q: GetStudentScheduleDto) {
     return this.service.getStudentSchedule(q.periodId, q.studentId);
   }
+
+  // GET /academic/schedule/me?periodId=...
   @Get('me')
-  me(@Req() req: any, @Query('periodId') periodId: string) {
-  return this.service.getMySchedule(req.user, periodId);
-}
+  me(@Req() req: any, @Query('periodId') periodId?: string) {
+    return this.service.getMySchedule(req.user, periodId);
+  }
 }

@@ -1,7 +1,7 @@
 import { Prop, Schema, SchemaFactory } from '@nestjs/mongoose';
-import { HydratedDocument, Types } from 'mongoose';
+import { Document, Types } from 'mongoose';
 
-export type EnrollmentDocument = HydratedDocument<Enrollment>;
+export type EnrollmentDocument = Enrollment & Document;
 
 @Schema({ timestamps: true })
 export class Enrollment {
@@ -14,14 +14,11 @@ export class Enrollment {
   @Prop({ type: Types.ObjectId, ref: 'Group', required: true, index: true })
   groupId: Types.ObjectId;
 
-  @Prop({ type: String, default: 'active' })
-  status: 'active' | 'dropped' | 'completed';
+  @Prop({ type: String, enum: ['active', 'inactive'], default: 'active', index: true })
+  status: 'active' | 'inactive';
 }
 
 export const EnrollmentSchema = SchemaFactory.createForClass(Enrollment);
 
-// Regla: un alumno solo puede estar inscrito a un grupo por periodo
+// Regla MVP: 1 inscripción por alumno por periodo
 EnrollmentSchema.index({ periodId: 1, studentId: 1 }, { unique: true });
-
-// Consultas comunes
-EnrollmentSchema.index({ periodId: 1, groupId: 1, status: 1 });

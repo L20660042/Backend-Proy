@@ -15,8 +15,7 @@ export class UsersService {
   ) {}
 
   async findByEmail(email: string) {
-    const q = this.userModel.findOne({ email: email.trim().toLowerCase() });
-    return q.exec();
+    return this.userModel.findOne({ email: email.trim().toLowerCase() }).exec();
   }
 
   async list() {
@@ -30,13 +29,14 @@ export class UsersService {
     if (!email) throw new BadRequestException('email requerido');
     if (!password) throw new BadRequestException('password requerido');
 
+    // roles
     const rolesRaw: any = (dto as any).roles;
     const rolesArr: string[] = Array.isArray(rolesRaw) ? rolesRaw : rolesRaw ? [rolesRaw] : [];
     if (rolesArr.length === 0) throw new BadRequestException('roles requerido');
 
     const rolesUpper = rolesArr.map((r) => String(r).toUpperCase());
 
-    // linkedEntityId
+    // linkedEntityId (string en tu schema)
     let linkedEntityId: string | null = null;
     const linkedRaw = (dto as any).linkedEntityId;
 
@@ -48,12 +48,12 @@ export class UsersService {
       linkedEntityId = s;
     }
 
-    // ====== AUTO-CREAR TEACHER SI ES DOCENTE Y NO VIENE linkedEntityId ======
+    // ===== AUTO-CREAR TEACHER SI ES DOCENTE Y NO VIENE linkedEntityId =====
     let createdTeacherId: string | null = null;
 
     if (!linkedEntityId && rolesUpper.includes('DOCENTE')) {
-      const teacherName = String(dto.teacherName ?? email.split('@')[0] ?? '').trim();
-      const employeeNumber = String(dto.employeeNumber ?? '').trim();
+      const teacherName = String((dto as any).teacherName ?? email.split('@')[0] ?? '').trim();
+      const employeeNumber = String((dto as any).employeeNumber ?? '').trim();
 
       if (!employeeNumber) {
         throw new BadRequestException('employeeNumber requerido para crear docente automáticamente');
@@ -77,6 +77,8 @@ export class UsersService {
         email,
         passwordHash: await bcrypt.hash(password, 10),
         roles: rolesUpper,
+        // OJO: tu schema usa active/inactive/pending.
+        // Asegúrate de que tu CreateUserDto también esté alineado.
         status: (dto as any).status ?? 'active',
         linkedEntityId,
       });
@@ -85,20 +87,26 @@ export class UsersService {
       delete user.passwordHash;
       return user;
     } catch (err: any) {
-      // rollback teacher si el user falló (ej: email duplicado)
+      // rollback teacher si falló crear user
       if (createdTeacherId) {
         try {
           await this.teachersService.remove(createdTeacherId);
-        } catch (_) {
-          // ignorar
+        } catch {
+          // ignore
         }
       }
 
+      // Email duplicado (índice unique)
       if (err?.code === 11000) {
         if (err?.keyPattern?.email) throw new BadRequestException('El email ya existe');
         throw new BadRequestException('Campo único duplicado');
       }
-      if (err?.name === 'ValidationError') throw new BadRequestException(err.message);
+
+      // Validación Mongoose
+      if (err?.name === 'ValidationError') {
+        throw new BadRequestException(err.message);
+      }
+
       throw err;
     }
   }
@@ -117,8 +125,8 @@ export class UsersService {
       update.linkedEntityId = dto.linkedEntityId;
     }
 
-    if (dto.password) {
-      update.passwordHash = await bcrypt.hash(dto.password, 10);
+    if ((dto as any).password) {
+      update.passwordHash = await bcrypt.hash(String((dto as any).password), 10);
     }
 
     const doc = await this.userModel

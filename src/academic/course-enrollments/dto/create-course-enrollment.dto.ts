@@ -1,9 +1,14 @@
 import { IsIn, IsMongoId, IsOptional } from 'class-validator';
 
-export class UpdateEnrollmentDto {
-  @IsOptional()
+export class CreateCourseEnrollmentDto {
   @IsMongoId()
-  groupId?: string;
+  periodId: string;
+
+  @IsMongoId()
+  studentId: string;
+
+  @IsMongoId()
+  classAssignmentId: string;
 
   @IsOptional()
   @IsIn(['active', 'inactive'])

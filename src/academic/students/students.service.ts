@@ -69,4 +69,8 @@ export class StudentsService {
     if (!deleted) throw new NotFoundException('Alumno no encontrado');
     return { deleted: true };
   }
+  async findByControlNumber(controlNumber: string) {
+  return this.model.findOne({ controlNumber: controlNumber.trim() }).exec();
+}
+
 }

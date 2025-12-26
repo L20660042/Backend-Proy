@@ -1,13 +1,13 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
 import { Model, Types } from 'mongoose';
-import { ScheduleBlock } from './schemas/schedule-block.schema';
+import { ScheduleBlock, ScheduleBlockDocument } from './schemas/schedule-block.schema';
 import { CreateScheduleBlockDto } from './dto/create-schedule-block.dto';
 import { UpdateScheduleBlockDto } from './dto/update-schedule-block.dto';
 
 function toMinutes(hhmm: string): number {
   const [h, m] = hhmm.split(':').map(Number);
-  return (h * 60) + m;
+  return h * 60 + m;
 }
 
 // Traslape: [aStart, aEnd) vs [bStart, bEnd) -> se traslapan si aStart < bEnd && bStart < aEnd
@@ -17,7 +17,10 @@ function overlaps(aStart: number, aEnd: number, bStart: number, bEnd: number): b
 
 @Injectable()
 export class ScheduleBlocksService {
-  constructor(@InjectModel(ScheduleBlock.name) private model: Model<ScheduleBlock>) {}
+  constructor(
+    @InjectModel(ScheduleBlock.name)
+    private readonly model: Model<ScheduleBlockDocument>,
+  ) {}
 
   private validateBusinessRules(dto: CreateScheduleBlockDto | UpdateScheduleBlockDto) {
     if (dto.startTime && dto.endTime) {
@@ -26,11 +29,11 @@ export class ScheduleBlocksService {
       if (e <= s) throw new BadRequestException('endTime debe ser mayor que startTime');
     }
 
-    if (dto.type === 'class') {
+    if ((dto as any).type === 'class') {
       // Para clases exigimos groupId, subjectId, teacherId
-      if (!('groupId' in dto) || !dto.groupId) throw new BadRequestException('groupId es requerido para type=class');
-      if (!('subjectId' in dto) || !dto.subjectId) throw new BadRequestException('subjectId es requerido para type=class');
-      if (!('teacherId' in dto) || !dto.teacherId) throw new BadRequestException('teacherId es requerido para type=class');
+      if (!('groupId' in dto) || !(dto as any).groupId) throw new BadRequestException('groupId es requerido para type=class');
+      if (!('subjectId' in dto) || !(dto as any).subjectId) throw new BadRequestException('subjectId es requerido para type=class');
+      if (!('teacherId' in dto) || !(dto as any).teacherId) throw new BadRequestException('teacherId es requerido para type=class');
     }
   }
 
@@ -47,9 +50,7 @@ export class ScheduleBlocksService {
     const s = toMinutes(params.startTime);
     const e = toMinutes(params.endTime);
 
-    // Traemos candidatos del mismo periodo+día con posibles choques (por room, group, teacher)
     const or: any[] = [];
-
     if (params.room) or.push({ room: params.room });
     if (params.groupId) or.push({ groupId: params.groupId });
     if (params.teacherId) or.push({ teacherId: params.teacherId });
@@ -69,8 +70,8 @@ export class ScheduleBlocksService {
     for (const c of candidates) {
       const cs = toMinutes(c.startTime);
       const ce = toMinutes(c.endTime);
+
       if (overlaps(s, e, cs, ce)) {
-        // Determina qué tipo de choque ocurrió
         if (params.teacherId && c.teacherId && String(params.teacherId) === String(c.teacherId)) {
           throw new BadRequestException(`Choque de docente con bloque existente (${c.startTime}-${c.endTime})`);
         }
@@ -124,6 +125,36 @@ export class ScheduleBlocksService {
 
     return this.model
       .find(filter)
+      .populate('periodId', 'name')
+      .populate('groupId', 'name semester')
+      .populate('subjectId', 'name code')
+      .populate('teacherId', 'name employeeNumber')
+      .sort({ dayOfWeek: 1, startTime: 1 })
+      .exec();
+  }
+
+  findByClassTriples(params: {
+    periodId: string;
+    triples: Array<{ groupId: string; subjectId: string; teacherId: string }>;
+  }) {
+    const pid = new Types.ObjectId(params.periodId);
+
+    if (!params.triples || params.triples.length === 0) {
+      return Promise.resolve([]);
+    }
+
+    const or = params.triples.map((t) => ({
+      groupId: new Types.ObjectId(t.groupId),
+      subjectId: new Types.ObjectId(t.subjectId),
+      teacherId: new Types.ObjectId(t.teacherId),
+    }));
+
+    return this.model
+      .find({
+        periodId: pid,
+        type: 'class',
+        $or: or,
+      })
       .populate('periodId', 'name')
       .populate('groupId', 'name semester')
       .populate('subjectId', 'name code')
@@ -199,12 +230,4 @@ export class ScheduleBlocksService {
     if (!deleted) throw new NotFoundException('Bloque de horario no encontrado');
     return { deleted: true };
   }
-  async findActiveByStudentAndPeriod(periodId: string, studentId: string) {
-  return this.model.findOne({
-    periodId: new (require('mongoose').Types.ObjectId)(periodId),
-    studentId: new (require('mongoose').Types.ObjectId)(studentId),
-    status: 'active',
-  }).exec();
-}
-
 }

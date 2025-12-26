@@ -7,6 +7,7 @@ import { AuthController } from './auth.controller';
 import { AuthService } from './auth.service';
 import { JwtStrategy } from './jwt.strategy';
 import type { StringValue } from 'ms';
+import { StudentsModule } from 'src/academic/students/students.module';
 
 function parseExpiresIn(raw?: string): number | StringValue {
   if (!raw) return 8 * 60 * 60;
@@ -25,6 +26,7 @@ function parseExpiresIn(raw?: string): number | StringValue {
   imports: [
     UsersModule,
     PassportModule,
+    StudentsModule,
     ConfigModule,
     JwtModule.registerAsync({
       inject: [ConfigService],

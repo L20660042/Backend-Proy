@@ -15,6 +15,7 @@ import { EnrollmentsModule } from './academic/enrollments/enrollments.module';
 import { ClassAssignmentsModule } from './academic/class-assignments/class-assignments.module';
 import { ScheduleBlocksModule } from './academic/schedule-blocks/schedule-blocks.module';
 import { ScheduleModule } from './academic/schedule/schedule.module';
+import { CourseEnrollmentsModule } from './academic/course-enrollments/course-enrollments.module';
 
 
 @Module({
@@ -29,6 +30,7 @@ import { ScheduleModule } from './academic/schedule/schedule.module';
     HealthModule,
     UsersModule,
     AuthModule,
+    CourseEnrollmentsModule,
     SeedModule,
     PeriodsModule,
     CareersModule,

@@ -11,6 +11,6 @@ export class CreateEnrollmentDto {
   groupId: string;
 
   @IsOptional()
-  @IsIn(['active', 'dropped', 'completed'])
-  status?: 'active' | 'dropped' | 'completed';
+  @IsIn(['active', 'inactive'])
+  status?: 'active' | 'inactive';
 }

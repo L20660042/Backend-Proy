@@ -1,4 +1,4 @@
-import { IsArray, IsEmail, IsIn, IsOptional, IsString, MinLength } from 'class-validator';
+import { IsEmail, IsIn, IsOptional, IsString, MinLength, IsArray } from 'class-validator';
 
 export class CreateUserDto {
   @IsEmail()
@@ -8,25 +8,24 @@ export class CreateUserDto {
   @MinLength(6)
   password: string;
 
+  @IsOptional()
   @IsArray()
   @IsString({ each: true })
-  roles: string[];
+  roles?: string[];
 
   @IsOptional()
-  @IsIn(['active', 'disabled', 'pending'])
-  status?: 'active' | 'disabled' | 'pending';
-
-  @IsOptional()
-  @IsString()
-  linkedEntityId?: string;
+  @IsIn(['active', 'inactive', 'pending'])
+  status?: 'active' | 'inactive' | 'pending';
 
   @IsOptional()
   @IsString()
-  @MinLength(3)
+  linkedEntityId?: string | null;
+
+  @IsOptional()
+  @IsString()
   teacherName?: string;
 
   @IsOptional()
   @IsString()
-  @MinLength(3)
   employeeNumber?: string;
 }
