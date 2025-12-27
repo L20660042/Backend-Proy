@@ -5,6 +5,8 @@ import { ScheduleBlock, ScheduleBlockDocument } from './schemas/schedule-block.s
 import { CreateScheduleBlockDto } from './dto/create-schedule-block.dto';
 import { UpdateScheduleBlockDto } from './dto/update-schedule-block.dto';
 
+type DeliveryMode = 'presencial' | 'semipresencial' | 'asincrono';
+
 function toMinutes(hhmm: string): number {
   const [h, m] = hhmm.split(':').map(Number);
   return h * 60 + m;
@@ -15,6 +17,23 @@ function overlaps(aStart: number, aEnd: number, bStart: number, bEnd: number): b
   return aStart < bEnd && bStart < aEnd;
 }
 
+function normalizeDeliveryMode(raw: any): DeliveryMode {
+  const s = String(raw ?? '')
+    .trim()
+    .toLowerCase()
+    .replace(/\s+/g, '');
+
+  if (!s) return 'presencial';
+
+  // tolerancias comunes
+  if (s === 'presencial') return 'presencial';
+  if (s === 'semipresencial' || s === 'semi-presencial' || s === 'semipresencial') return 'semipresencial';
+  if (s === 'asincrono' || s === 'asíncrono') return 'asincrono';
+
+  // fallback seguro
+  return 'presencial';
+}
+
 @Injectable()
 export class ScheduleBlocksService {
   constructor(
@@ -22,7 +41,7 @@ export class ScheduleBlocksService {
     private readonly model: Model<ScheduleBlockDocument>,
   ) {}
 
-  private validateBusinessRules(dto: CreateScheduleBlockDto | UpdateScheduleBlockDto) {
+  private validateBusinessRules(dto: CreateScheduleBlockDto | UpdateScheduleBlockDto | any) {
     if (dto.startTime && dto.endTime) {
       const s = toMinutes(dto.startTime);
       const e = toMinutes(dto.endTime);
@@ -37,6 +56,12 @@ export class ScheduleBlocksService {
     }
   }
 
+  /**
+   * REGLA NUEVA (según tu negocio):
+   * - Un grupo NO puede tener 2 clases a la misma hora SI ambas son PRESENCIALES.
+   * - Si alguna es SEMIPRESENCIAL o ASINCRONO, el traslape por grupo se permite.
+   * - Docente y aula: se bloquean traslapes siempre que ninguno de los dos sea ASINCRONO.
+   */
   private async assertNoConflicts(params: {
     periodId: Types.ObjectId;
     dayOfWeek: number;
@@ -45,15 +70,27 @@ export class ScheduleBlocksService {
     room?: string | null;
     groupId?: Types.ObjectId | null;
     teacherId?: Types.ObjectId | null;
+    deliveryMode: DeliveryMode;
     excludeId?: string;
   }) {
     const s = toMinutes(params.startTime);
     const e = toMinutes(params.endTime);
 
+    const newMode = params.deliveryMode ?? 'presencial';
+    const newIsAsync = newMode === 'asincrono';
+    const newIsPresencial = newMode === 'presencial';
+
+    // armamos filtro por dimensiones relevantes
     const or: any[] = [];
-    if (params.room) or.push({ room: params.room });
-    if (params.groupId) or.push({ groupId: params.groupId });
-    if (params.teacherId) or.push({ teacherId: params.teacherId });
+
+    // aula: solo si el bloque nuevo NO es asincrono y trae room
+    if (!newIsAsync && params.room) or.push({ room: params.room });
+
+    // docente: solo si el bloque nuevo NO es asincrono y trae teacherId
+    if (!newIsAsync && params.teacherId) or.push({ teacherId: params.teacherId });
+
+    // grupo: solo consultamos si el nuevo es presencial (es el único caso donde podría bloquearse por grupo)
+    if (newIsPresencial && params.groupId) or.push({ groupId: params.groupId });
 
     if (or.length === 0) return;
 
@@ -71,22 +108,51 @@ export class ScheduleBlocksService {
       const cs = toMinutes(c.startTime);
       const ce = toMinutes(c.endTime);
 
-      if (overlaps(s, e, cs, ce)) {
-        if (params.teacherId && c.teacherId && String(params.teacherId) === String(c.teacherId)) {
-          throw new BadRequestException(`Choque de docente con bloque existente (${c.startTime}-${c.endTime})`);
-        }
-        if (params.groupId && c.groupId && String(params.groupId) === String(c.groupId)) {
-          throw new BadRequestException(`Choque de grupo con bloque existente (${c.startTime}-${c.endTime})`);
-        }
-        if (params.room && c.room && params.room === c.room) {
-          throw new BadRequestException(`Choque de aula con bloque existente (${c.startTime}-${c.endTime})`);
-        }
+      if (!overlaps(s, e, cs, ce)) continue;
+
+      const existingMode = normalizeDeliveryMode((c as any).deliveryMode);
+      const existingIsAsync = existingMode === 'asincrono';
+      const existingIsPresencial = existingMode === 'presencial';
+
+      // 1) Docente: conflicto si ambos NO son asincrono
+      if (
+        params.teacherId &&
+        c.teacherId &&
+        String(params.teacherId) === String(c.teacherId) &&
+        !newIsAsync &&
+        !existingIsAsync
+      ) {
+        throw new BadRequestException(`Choque de docente con bloque existente (${c.startTime}-${c.endTime})`);
+      }
+
+      // 2) Grupo: conflicto SOLO si ambos son presenciales
+      if (
+        params.groupId &&
+        c.groupId &&
+        String(params.groupId) === String(c.groupId) &&
+        newIsPresencial &&
+        existingIsPresencial
+      ) {
+        throw new BadRequestException(`Choque de grupo con bloque existente (${c.startTime}-${c.endTime})`);
+      }
+
+      // 3) Aula: conflicto si ambos NO son asincrono
+      if (
+        params.room &&
+        c.room &&
+        params.room === c.room &&
+        !newIsAsync &&
+        !existingIsAsync
+      ) {
+        throw new BadRequestException(`Choque de aula con bloque existente (${c.startTime}-${c.endTime})`);
       }
     }
   }
 
-  async create(dto: CreateScheduleBlockDto) {
-    this.validateBusinessRules(dto);
+  async create(dto: CreateScheduleBlockDto & { deliveryMode?: DeliveryMode }) {
+    const deliveryMode: DeliveryMode = normalizeDeliveryMode((dto as any).deliveryMode);
+
+    this.validateBusinessRules({ ...dto, deliveryMode });
 
     const periodId = new Types.ObjectId(dto.periodId);
     const groupId = dto.groupId ? new Types.ObjectId(dto.groupId) : null;
@@ -100,11 +166,14 @@ export class ScheduleBlocksService {
       room: dto.room?.trim() ?? null,
       groupId,
       teacherId,
+      deliveryMode,
     });
 
     return this.model.create({
       periodId,
       type: dto.type,
+      // ⚠️ requiere que exista en schema para persistir (si no, Mongoose lo ignora)
+      deliveryMode,
       dayOfWeek: dto.dayOfWeek,
       startTime: dto.startTime,
       endTime: dto.endTime,
@@ -113,7 +182,7 @@ export class ScheduleBlocksService {
       subjectId: dto.subjectId ? new Types.ObjectId(dto.subjectId) : null,
       teacherId,
       activityId: dto.activityId ? new Types.ObjectId(dto.activityId) : null,
-    });
+    } as any);
   }
 
   findAll(params?: { periodId?: string; groupId?: string; teacherId?: string; dayOfWeek?: string }) {
@@ -176,7 +245,7 @@ export class ScheduleBlocksService {
     return doc;
   }
 
-  async update(id: string, dto: UpdateScheduleBlockDto) {
+  async update(id: string, dto: UpdateScheduleBlockDto & { deliveryMode?: DeliveryMode }) {
     const current = await this.model.findById(id).exec();
     if (!current) throw new NotFoundException('Bloque de horario no encontrado');
 
@@ -190,6 +259,9 @@ export class ScheduleBlocksService {
       groupId: dto.groupId ?? (current.groupId ? String(current.groupId) : undefined),
       subjectId: dto.subjectId ?? (current.subjectId ? String(current.subjectId) : undefined),
       teacherId: dto.teacherId ?? (current.teacherId ? String(current.teacherId) : undefined),
+
+      // deliveryMode: dto si viene, si no, el del doc, si no existe, 'presencial'
+      deliveryMode: normalizeDeliveryMode((dto as any).deliveryMode ?? (current as any).deliveryMode ?? 'presencial'),
     };
 
     this.validateBusinessRules(merged);
@@ -206,6 +278,7 @@ export class ScheduleBlocksService {
       room: (merged.room ?? null)?.trim?.() ?? merged.room ?? null,
       groupId,
       teacherId,
+      deliveryMode: merged.deliveryMode as DeliveryMode,
       excludeId: id,
     });
 
@@ -220,6 +293,9 @@ export class ScheduleBlocksService {
     if (dto.subjectId !== undefined) update.subjectId = dto.subjectId ? new Types.ObjectId(dto.subjectId) : null;
     if (dto.teacherId !== undefined) update.teacherId = dto.teacherId ? new Types.ObjectId(dto.teacherId) : null;
     if (dto.activityId !== undefined) update.activityId = dto.activityId ? new Types.ObjectId(dto.activityId) : null;
+
+    // ⚠️ requiere schema para persistir
+    if ((dto as any).deliveryMode !== undefined) update.deliveryMode = normalizeDeliveryMode((dto as any).deliveryMode);
 
     const updated = await this.model.findByIdAndUpdate(id, update, { new: true }).exec();
     return updated;

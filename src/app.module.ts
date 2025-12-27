@@ -16,6 +16,7 @@ import { ClassAssignmentsModule } from './academic/class-assignments/class-assig
 import { ScheduleBlocksModule } from './academic/schedule-blocks/schedule-blocks.module';
 import { ScheduleModule } from './academic/schedule/schedule.module';
 import { CourseEnrollmentsModule } from './academic/course-enrollments/course-enrollments.module';
+import { ImportModule } from './academic/import/import.module';
 
 
 @Module({
@@ -34,6 +35,7 @@ import { CourseEnrollmentsModule } from './academic/course-enrollments/course-en
     SeedModule,
     PeriodsModule,
     CareersModule,
+    ImportModule,
     SubjectsModule,
     GroupsModule,
     TeachersModule,

@@ -7,12 +7,16 @@ export class CreateScheduleBlockDto {
   @IsIn(['class', 'extracurricular'])
   type: 'class' | 'extracurricular';
 
+  // ✅ NUEVO
+  @IsOptional()
+  @IsIn(['presencial', 'semipresencial', 'asincrono'])
+  deliveryMode?: 'presencial' | 'semipresencial' | 'asincrono';
+
   @IsInt()
   @Min(1)
   @Max(7)
   dayOfWeek: number;
 
-  // HH:MM
   @IsString()
   @Matches(/^([01]\d|2[0-3]):[0-5]\d$/)
   startTime: string;
@@ -25,7 +29,6 @@ export class CreateScheduleBlockDto {
   @IsString()
   room?: string;
 
-  
   @IsOptional()
   @IsMongoId()
   groupId?: string;
@@ -38,7 +41,6 @@ export class CreateScheduleBlockDto {
   @IsMongoId()
   teacherId?: string;
 
-  
   @IsOptional()
   @IsMongoId()
   activityId?: string;

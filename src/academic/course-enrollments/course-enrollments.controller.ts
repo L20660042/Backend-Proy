@@ -93,6 +93,20 @@ export class CourseEnrollmentsController {
   }
 
   /**
+   * ✅ BULK: Grupo → todas las cargas
+   * POST /academic/course-enrollments/bulk/by-group
+   */
+  @Roles(Role.SUPERADMIN, Role.ADMIN, Role.SERVICIOS_ESCOLARES)
+  @Post('bulk/by-group')
+  bulkByGroup(@Body() body: { periodId: string; groupId: string; status?: 'active' | 'inactive' }) {
+    return this.service.bulkEnrollByGroup({
+      periodId: body.periodId,
+      groupId: body.groupId,
+      status: body.status ?? 'active',
+    });
+  }
+
+  /**
    * ADMIN / CONTROL ESCOLAR
    * GET /academic/course-enrollments?periodId=&studentId=&classAssignmentId=&groupId=&subjectId=&teacherId=&status=
    */

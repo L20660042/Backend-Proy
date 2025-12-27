@@ -1,10 +1,18 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
 import { Model, Types } from 'mongoose';
+
 import { ClassAssignmentsService } from '../class-assignments/class-assignments.service';
+import { StudentsService } from '../students/students.service';
+import { EnrollmentsService } from '../enrollments/enrollments.service';
+
 import { CreateCourseEnrollmentDto } from './dto/create-course-enrollment.dto';
 import { UpdateCourseEnrollmentDto } from './dto/update-course-enrollment.dto';
 import { CourseEnrollment, CourseEnrollmentDocument } from './schemas/course-enrollment.schema';
+
+function oid(id: any) {
+  return String((id as any)?._id ?? id ?? '');
+}
 
 @Injectable()
 export class CourseEnrollmentsService {
@@ -12,6 +20,8 @@ export class CourseEnrollmentsService {
     @InjectModel(CourseEnrollment.name)
     private readonly model: Model<CourseEnrollmentDocument>,
     private readonly classAssignments: ClassAssignmentsService,
+    private readonly students: StudentsService,
+    private readonly enrollments: EnrollmentsService,
   ) {}
 
   async list(params?: {
@@ -125,5 +135,123 @@ export class CourseEnrollmentsService {
         status: 'active',
       })
       .lean();
+  }
+
+  /**
+   * ✅ Bulk: Grupo (del periodo) → todas las cargas activas del grupo
+   * Fuente de alumnos:
+   *  1) Primero Enrollment (Alumno→Grupo por periodo) si hay registros
+   *  2) Si no hay, fallback a Student.groupId (útil si cargaste alumnos por CSV y no usas Enrollment)
+   */
+  async bulkEnrollByGroup(params: {
+    periodId: string;
+    groupId: string;
+    status?: 'active' | 'inactive';
+  }) {
+    const { periodId, groupId } = params;
+    const status = params.status ?? 'active';
+
+    if (!Types.ObjectId.isValid(periodId)) throw new BadRequestException('periodId inválido');
+    if (!Types.ObjectId.isValid(groupId)) throw new BadRequestException('groupId inválido');
+
+    // 1) alumnos: intentar por Enrollment (periodo+grupo)
+    const enrollRows = await this.enrollments.list({ periodId, groupId, status: 'active' });
+    let studentIds = (enrollRows ?? [])
+      .map((e: any) => oid(e.studentId))
+      .filter(Boolean);
+
+    let studentsSource: 'enrollments' | 'students' = 'enrollments';
+
+    // 2) fallback a Student.groupId
+    if (studentIds.length === 0) {
+      studentsSource = 'students';
+      const studs = await this.students.findAll({ groupId, status: 'active' });
+      studentIds = (studs ?? []).map((s: any) => oid(s._id)).filter(Boolean);
+    }
+
+    // 3) cargas activas del grupo en el periodo
+    const classAssignments = await this.classAssignments.findAll({ periodId, groupId, status: 'active' });
+
+    if (studentIds.length === 0) {
+      return {
+        ok: true,
+        studentsSource,
+        periodId,
+        groupId,
+        students: 0,
+        classAssignments: classAssignments?.length ?? 0,
+        attempted: 0,
+        upserted: 0,
+        matched: 0,
+        modified: 0,
+      };
+    }
+
+    if (!classAssignments || classAssignments.length === 0) {
+      return {
+        ok: true,
+        studentsSource,
+        periodId,
+        groupId,
+        students: studentIds.length,
+        classAssignments: 0,
+        attempted: 0,
+        upserted: 0,
+        matched: 0,
+        modified: 0,
+      };
+    }
+
+    const pid = new Types.ObjectId(periodId);
+
+    // 4) bulk upsert
+    const ops: any[] = [];
+    for (const sid of studentIds) {
+      const studentObjectId = new Types.ObjectId(sid);
+
+      for (const ca of classAssignments as any[]) {
+        const caId = oid(ca._id);
+        const caGroupId = oid(ca.groupId);
+        const caSubjectId = oid(ca.subjectId);
+        const caTeacherId = oid(ca.teacherId);
+
+        ops.push({
+          updateOne: {
+            filter: {
+              periodId: pid,
+              studentId: studentObjectId,
+              classAssignmentId: new Types.ObjectId(caId),
+            },
+            update: {
+              $set: { status },
+              $setOnInsert: {
+                periodId: pid,
+                studentId: studentObjectId,
+                classAssignmentId: new Types.ObjectId(caId),
+                groupId: new Types.ObjectId(caGroupId),
+                subjectId: new Types.ObjectId(caSubjectId),
+                teacherId: new Types.ObjectId(caTeacherId),
+              },
+            },
+            upsert: true,
+          },
+        });
+      }
+    }
+
+    const res = await this.model.bulkWrite(ops, { ordered: false });
+
+    return {
+      ok: true,
+      studentsSource,
+      periodId,
+      groupId,
+      students: studentIds.length,
+      classAssignments: classAssignments.length,
+      attempted: ops.length,
+      upserted: res.upsertedCount ?? 0,
+      matched: res.matchedCount ?? 0,
+      modified: res.modifiedCount ?? 0,
+    };
   }
 }
