@@ -31,14 +31,6 @@ export class CourseEnrollmentsController {
     private readonly classAssignments: ClassAssignmentsService,
   ) {}
 
-  /**
-   * ✅ /me unificado:
-   * - DOCENTE: alumnos inscritos (activos) en UNA carga del docente
-   *   GET /academic/course-enrollments/me?periodId=...&classAssignmentId=...
-   *
-   * - ALUMNO: mis materias (course-enrollments activos) del periodo
-   *   GET /academic/course-enrollments/me?periodId=...
-   */
   @Roles(Role.DOCENTE, Role.ALUMNO)
   @Get('me')
   async me(
@@ -92,10 +84,6 @@ export class CourseEnrollmentsController {
     throw new ForbiddenException('Rol no autorizado');
   }
 
-  /**
-   * ✅ BULK: Grupo → todas las cargas
-   * POST /academic/course-enrollments/bulk/by-group
-   */
   @Roles(Role.SUPERADMIN, Role.ADMIN, Role.SERVICIOS_ESCOLARES)
   @Post('bulk/by-group')
   bulkByGroup(@Body() body: { periodId: string; groupId: string; status?: 'active' | 'inactive' }) {
@@ -106,10 +94,6 @@ export class CourseEnrollmentsController {
     });
   }
 
-  /**
-   * ADMIN / CONTROL ESCOLAR
-   * GET /academic/course-enrollments?periodId=&studentId=&classAssignmentId=&groupId=&subjectId=&teacherId=&status=
-   */
   @Roles(Role.SUPERADMIN, Role.ADMIN, Role.SERVICIOS_ESCOLARES)
   @Get()
   list(
@@ -138,10 +122,24 @@ export class CourseEnrollmentsController {
     return this.service.create(dto);
   }
 
-  @Roles(Role.SUPERADMIN, Role.ADMIN, Role.SERVICIOS_ESCOLARES)
+  @Roles(Role.DOCENTE, Role.SUPERADMIN, Role.ADMIN, Role.SERVICIOS_ESCOLARES)
   @Patch(':id')
-  update(@Param('id') id: string, @Body() dto: UpdateCourseEnrollmentDto) {
-    return this.service.update(id, dto);
+  update(@Req() req: any, @Param('id') id: string, @Body() dto: UpdateCourseEnrollmentDto) {
+    const roles: string[] = req.user?.roles ?? [];
+
+    const isAdmin =
+      roles.includes(Role.SUPERADMIN) ||
+      roles.includes(Role.ADMIN) ||
+      roles.includes(Role.SERVICIOS_ESCOLARES);
+
+    if (isAdmin) {
+      return this.service.updateAsAdmin(id, dto);
+    }
+
+    // Docente
+    const teacherId = req.user?.linkedEntityId;
+    if (!teacherId) throw new ForbiddenException('Usuario sin linkedEntityId (docente)');
+    return this.service.updateAsTeacher(id, String(teacherId), dto);
   }
 
   @Roles(Role.SUPERADMIN, Role.ADMIN, Role.SERVICIOS_ESCOLARES)

@@ -27,6 +27,10 @@ export class CourseEnrollment {
 
   @Prop({ type: String, enum: ['active', 'inactive'], default: 'active', index: true })
   status: 'active' | 'inactive';
+
+  @Prop({ type: Number, default: null, min: 0, max: 100 })
+  finalGrade?: number | null;
+
 }
 
 export const CourseEnrollmentSchema = SchemaFactory.createForClass(CourseEnrollment);

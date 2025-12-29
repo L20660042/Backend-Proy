@@ -34,40 +34,40 @@ export class AuthService {
     };
   }
 
- async registerStudent(controlNumber: string, password: string) {
-  const cn = String(controlNumber ?? '').trim();
-  const pass = String(password ?? '').trim();
+  async registerStudent(controlNumber: string, password: string) {
+    const cn = String(controlNumber ?? '').trim();
+    const pass = String(password ?? '').trim();
 
-  if (!/^\d{8}$/.test(cn)) throw new BadRequestException('controlNumber debe tener 8 dígitos');
-  if (!pass || pass.length < 6) throw new BadRequestException('password mínimo 6 caracteres');
+    if (!/^\d{8}$/.test(cn)) throw new BadRequestException('controlNumber debe tener 8 dígitos');
+    if (!pass || pass.length < 6) throw new BadRequestException('password mínimo 6 caracteres');
 
-  const email = `l${cn}@matehuala.tecnm.mx`.toLowerCase();
+    const email = `l${cn}@matehuala.tecnm.mx`.toLowerCase();
 
-  const existsUser = await this.users.findByEmail(email);
-  if (existsUser) throw new BadRequestException('Ya existe una cuenta con este número de control');
+    const existsUser = await this.users.findByEmail(email);
+    if (existsUser) throw new BadRequestException('Ya existe una cuenta con este número de control');
 
-  // ✅ Si ya existe el alumno en students, lo ligamos automáticamente
-  const student = await this.students.findByControlNumber(cn);
+    const student = await this.students.findByControlNumber(cn);
 
-  await this.users.create({
-    email,
-    password: pass,
-    roles: [Role.ALUMNO],
-    status: 'pending',
-    linkedEntityId: student ? String((student as any)._id) : null,
-  } as any);
+    const status = student ? 'active' : 'pending';
 
-  return {
-    message: student
-      ? 'Registro creado. Cuenta en pending; ya quedó ligado al alumno en catálogo.'
-      : 'Registro creado. Cuenta en pending; Control Escolar debe capturar tu alumno en catálogo y ligar la cuenta.',
-    email,
-    status: 'pending',
-    linked: !!student,
-  };
-}
+    await this.users.create({
+      email,
+      password: pass,
+      roles: [Role.ALUMNO],
+      status,
+      linkedEntityId: student ? String((student as any)._id) : null,
+    } as any);
 
-  // ✅ Cambiar password del usuario logueado (requiere password actual)
+    return {
+      message: student
+        ? 'Cuenta creada y ACTIVADA. Ya puedes iniciar sesión.'
+        : 'Registro creado. Cuenta en pending; Control Escolar debe capturar tu alumno en catálogo para activarla.',
+      email,
+      status,
+      linked: !!student,
+    };
+  }
+
   async changePassword(userId: string, email: string, currentPassword: string, newPassword: string) {
     const user = await this.users.findByEmail(email);
     if (!user) throw new UnauthorizedException('Usuario no encontrado');
