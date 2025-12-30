@@ -17,6 +17,7 @@ import { ScheduleBlocksModule } from './academic/schedule-blocks/schedule-blocks
 import { ScheduleModule } from './academic/schedule/schedule.module';
 import { CourseEnrollmentsModule } from './academic/course-enrollments/course-enrollments.module';
 import { ImportModule } from './academic/import/import.module';
+import { FeedbackModule } from './feedback/feedback.module';
 
 
 @Module({
@@ -31,6 +32,7 @@ import { ImportModule } from './academic/import/import.module';
     HealthModule,
     UsersModule,
     AuthModule,
+    FeedbackModule,
     CourseEnrollmentsModule,
     SeedModule,
     PeriodsModule,

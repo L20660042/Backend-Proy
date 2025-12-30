@@ -82,17 +82,36 @@ export class EnrollmentsService {
       return doc;
     }
 
-    // si cambió de grupo, desactivar lo del grupo anterior
     const oldGroupId = before ? oid(before.groupId) : '';
-    if (oldGroupId && oldGroupId !== String(groupId)) {
-      await this.courseEnrollments.deactivateByStudentAndGroup({
-        periodId,
-        studentId,
-        groupId: oldGroupId,
-      });
-    }
+    const hadBefore = Boolean(before);
+    const oldStatus = (before as any)?.status ?? null;
 
-    await this.courseEnrollments.syncStudentToGroupLoads({ periodId, studentId, groupId, status: 'active' });
+    try {
+      // ✅ Primero sincronizamos nuevas cargas (si hay choque, falla aquí sin desactivar nada previo)
+      await this.courseEnrollments.syncStudentToGroupLoads({ periodId, studentId, groupId, status: 'active' });
+
+      // ✅ Si cambió de grupo base, desactivar el grupo anterior al final
+      if (oldGroupId && oldGroupId !== String(groupId)) {
+        await this.courseEnrollments.deactivateByStudentAndGroup({ periodId, studentId, groupId: oldGroupId });
+      }
+    } catch (err) {
+      // rollback best-effort para que no quede Enrollment activo sin materias
+      try {
+        await this.courseEnrollments.deactivateByStudentAndGroup({ periodId, studentId, groupId: String(groupId) });
+      } catch {}
+
+      if (hadBefore) {
+        await this.model.findOneAndUpdate(
+          { periodId: new Types.ObjectId(periodId), studentId: new Types.ObjectId(studentId) },
+          { $set: { groupId: new Types.ObjectId(oldGroupId), status: oldStatus ?? 'active' } },
+          { new: true },
+        );
+      } else {
+        await this.model.deleteOne({ _id: new Types.ObjectId(String((doc as any)._id)) });
+      }
+
+      throw err;
+    }
 
     return doc;
   }
@@ -138,10 +157,39 @@ export class EnrollmentsService {
     const reactivated = oldStatus !== 'active' && newStatus === 'active';
 
     if (groupChanged) {
-      await this.courseEnrollments.deactivateByStudentAndGroup({ periodId, studentId, groupId: oldGroupId });
-      await this.courseEnrollments.syncStudentToGroupLoads({ periodId, studentId, groupId: newGroupId, status: 'active' });
+      try {
+        // ✅ primero sync nuevo, luego desactivar viejo
+        await this.courseEnrollments.syncStudentToGroupLoads({
+          periodId,
+          studentId,
+          groupId: newGroupId,
+          status: 'active',
+        });
+        await this.courseEnrollments.deactivateByStudentAndGroup({ periodId, studentId, groupId: oldGroupId });
+      } catch (err) {
+        // rollback Enrollment
+        try {
+          await this.courseEnrollments.deactivateByStudentAndGroup({ periodId, studentId, groupId: newGroupId });
+        } catch {}
+        await this.model.findByIdAndUpdate(
+          id,
+          { groupId: new Types.ObjectId(oldGroupId), status: oldStatus },
+          { new: true },
+        );
+        throw err;
+      }
     } else if (reactivated) {
-      await this.courseEnrollments.syncStudentToGroupLoads({ periodId, studentId, groupId: newGroupId, status: 'active' });
+      try {
+        await this.courseEnrollments.syncStudentToGroupLoads({
+          periodId,
+          studentId,
+          groupId: newGroupId,
+          status: 'active',
+        });
+      } catch (err) {
+        await this.model.findByIdAndUpdate(id, { status: oldStatus }, { new: true });
+        throw err;
+      }
     }
 
     return doc;

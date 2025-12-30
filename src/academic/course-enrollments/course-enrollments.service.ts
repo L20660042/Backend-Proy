@@ -10,6 +10,7 @@ import { InjectModel } from '@nestjs/mongoose';
 import { Model, Types } from 'mongoose';
 
 import { ClassAssignmentsService } from '../class-assignments/class-assignments.service';
+import { ScheduleBlocksService } from '../schedule-blocks/schedule-blocks.service';
 import { StudentsService } from '../students/students.service';
 import { EnrollmentsService } from '../enrollments/enrollments.service';
 
@@ -29,16 +30,159 @@ function validateFinalGrade(value: any) {
   if (n < 0 || n > 100) throw new BadRequestException('finalGrade fuera de rango (0..100)');
 }
 
+type DeliveryMode = 'presencial' | 'semipresencial' | 'asincrono';
+
+function normalizeDeliveryMode(raw: any): DeliveryMode {
+  const s = String(raw ?? '')
+    .trim()
+    .toLowerCase()
+    .replace(/\s+/g, '');
+  if (!s) return 'presencial';
+  if (s === 'presencial') return 'presencial';
+  if (s === 'semipresencial' || s === 'semi-presencial') return 'semipresencial';
+  if (s === 'asincrono' || s === 'asíncrono') return 'asincrono';
+  return 'presencial';
+}
+
+function toMinutes(hhmm: string): number {
+  const [h, m] = String(hhmm ?? '').split(':').map(Number);
+  return (h || 0) * 60 + (m || 0);
+}
+
+function overlaps(aStart: number, aEnd: number, bStart: number, bEnd: number): boolean {
+  return aStart < bEnd && bStart < aEnd;
+}
+
+function dayName(dayOfWeek: number): string {
+  switch (Number(dayOfWeek)) {
+    case 1:
+      return 'Lunes';
+    case 2:
+      return 'Martes';
+    case 3:
+      return 'Miércoles';
+    case 4:
+      return 'Jueves';
+    case 5:
+      return 'Viernes';
+    case 6:
+      return 'Sábado';
+    case 7:
+      return 'Domingo';
+    default:
+      return `Día ${dayOfWeek}`;
+  }
+}
+
 @Injectable()
 export class CourseEnrollmentsService {
   constructor(
     @InjectModel(CourseEnrollment.name)
     private readonly model: Model<CourseEnrollmentDocument>,
     private readonly classAssignments: ClassAssignmentsService,
+    private readonly blocks: ScheduleBlocksService,
     private readonly students: StudentsService,
     @Inject(forwardRef(() => EnrollmentsService))
     private readonly enrollments: EnrollmentsService,
   ) {}
+
+  private async validateStudentScheduleConflicts(params: {
+    periodId: string;
+    studentId: string;
+    candidateTriples: Array<{ groupId: string; subjectId: string; teacherId: string }>;
+  }) {
+    const { periodId, studentId } = params;
+
+    if (!Types.ObjectId.isValid(periodId)) throw new BadRequestException('periodId inválido');
+    if (!Types.ObjectId.isValid(studentId)) throw new BadRequestException('studentId inválido');
+
+    // dedupe candidate triples
+    const candSeen = new Set<string>();
+    const candidateTriples = (params.candidateTriples ?? [])
+      .map((t) => ({ groupId: String(t.groupId), subjectId: String(t.subjectId), teacherId: String(t.teacherId) }))
+      .filter(
+        (t) =>
+          Types.ObjectId.isValid(t.groupId) &&
+          Types.ObjectId.isValid(t.subjectId) &&
+          Types.ObjectId.isValid(t.teacherId),
+      )
+      .filter((t) => {
+        const k = `${t.groupId}|${t.subjectId}|${t.teacherId}`;
+        if (candSeen.has(k)) return false;
+        candSeen.add(k);
+        return true;
+      });
+
+    if (candidateTriples.length === 0) return;
+
+    const current = await this.findActiveByStudentAndPeriod(periodId, studentId);
+
+    // existing triples (exclude ones that are the same as candidates)
+    const existingSeen = new Set<string>();
+    const existingTriples: Array<{ groupId: string; subjectId: string; teacherId: string }> = [];
+
+    for (const ce of current as any[]) {
+      const g = String(ce.groupId);
+      const s = String(ce.subjectId);
+      const t = String(ce.teacherId);
+      const k = `${g}|${s}|${t}`;
+      if (candSeen.has(k)) continue; // same class, ignore
+      if (existingSeen.has(k)) continue;
+      existingSeen.add(k);
+      existingTriples.push({ groupId: g, subjectId: s, teacherId: t });
+    }
+
+    if (existingTriples.length === 0) return;
+
+    // traer bloques de horario
+    const [candBlocks, existingBlocks] = await Promise.all([
+      this.blocks.findByClassTriples({ periodId, triples: candidateTriples }),
+      this.blocks.findByClassTriples({ periodId, triples: existingTriples }),
+    ]);
+
+    if (!candBlocks?.length || !existingBlocks?.length) return;
+
+    // pre-index existing by day
+    const existingByDay = new Map<number, any[]>();
+    for (const b of existingBlocks as any[]) {
+      const d = Number(b.dayOfWeek);
+      if (!existingByDay.has(d)) existingByDay.set(d, []);
+      existingByDay.get(d)!.push(b);
+    }
+
+    for (const cb of candBlocks as any[]) {
+      const day = Number(cb.dayOfWeek);
+      const list = existingByDay.get(day) ?? [];
+      if (list.length === 0) continue;
+
+      const cMode = normalizeDeliveryMode(cb.deliveryMode);
+      if (cMode !== 'presencial') continue; // candidato NO presencial: permite empalme
+
+      const cs = toMinutes(cb.startTime);
+      const ce = toMinutes(cb.endTime);
+
+      for (const eb of list) {
+        const eMode = normalizeDeliveryMode(eb.deliveryMode);
+        if (eMode !== 'presencial') continue; // existente no presencial: permite empalme
+
+        const es = toMinutes(eb.startTime);
+        const ee = toMinutes(eb.endTime);
+        if (!overlaps(cs, ce, es, ee)) continue;
+
+        const cSubject = (cb.subjectId?.code ? `${cb.subjectId.code} - ` : '') + (cb.subjectId?.name ?? 'Materia');
+        const eSubject = (eb.subjectId?.code ? `${eb.subjectId.code} - ` : '') + (eb.subjectId?.name ?? 'Materia');
+        const cGroup = cb.groupId?.name ?? cb.groupId ?? 'Grupo';
+        const eGroup = eb.groupId?.name ?? eb.groupId ?? 'Grupo';
+
+        throw new BadRequestException(
+          `Choque presencial para el alumno: "${cSubject}" (Grupo ${cGroup}) se empalma con "${eSubject}" (Grupo ${eGroup}) el ${dayName(
+            day,
+          )} ${cb.startTime}-${cb.endTime}. ` +
+            `Si debe permitirse el empalme, marca una de las materias como semipresencial/asincrono en su ScheduleBlock.`,
+        );
+      }
+    }
+  }
 
   async list(params?: {
     periodId?: string;
@@ -93,6 +237,21 @@ export class CourseEnrollmentsService {
       throw new BadRequestException('La asignación no pertenece al periodId indicado');
     }
 
+    const status = (dto.status ?? 'active') as 'active' | 'inactive';
+    if (status === 'active') {
+      await this.validateStudentScheduleConflicts({
+        periodId,
+        studentId,
+        candidateTriples: [
+          {
+            groupId: String((ca as any).groupId?._id ?? (ca as any).groupId),
+            subjectId: String((ca as any).subjectId?._id ?? (ca as any).subjectId),
+            teacherId: String((ca as any).teacherId?._id ?? (ca as any).teacherId),
+          },
+        ],
+      });
+    }
+
     try {
       return await this.model.create({
         periodId: new Types.ObjectId(periodId),
@@ -103,7 +262,7 @@ export class CourseEnrollmentsService {
         subjectId: new Types.ObjectId(String((ca as any).subjectId?._id ?? (ca as any).subjectId)),
         teacherId: new Types.ObjectId(String((ca as any).teacherId?._id ?? (ca as any).teacherId)),
 
-        status: dto.status ?? 'active',
+        status,
       });
     } catch (err: any) {
       if (err?.code === 11000) {
@@ -197,10 +356,6 @@ export class CourseEnrollmentsService {
       .lean();
   }
 
-  /**
-   * ✅ Auto-sync (1 alumno → todas las cargas del grupo)
-   * Crea/actualiza CourseEnrollments para todas las cargas activas del grupo.
-   */
   async syncStudentToGroupLoads(params: {
     periodId: string;
     studentId: string;
@@ -217,7 +372,33 @@ export class CourseEnrollmentsService {
     const classAssignments = await this.classAssignments.findAll({ periodId, groupId, status: 'active' });
 
     if (!classAssignments || classAssignments.length === 0) {
-      return { ok: true, periodId, groupId, studentId, classAssignments: 0, attempted: 0, upserted: 0, matched: 0, modified: 0 };
+      return {
+        ok: true,
+        periodId,
+        groupId,
+        studentId,
+        classAssignments: 0,
+        attempted: 0,
+        upserted: 0,
+        matched: 0,
+        modified: 0,
+      };
+    }
+     if (status === 'active') {
+      const triples: Array<{ groupId: string; subjectId: string; teacherId: string }> = [];
+      const seen = new Set<string>();
+
+      for (const ca of classAssignments as any[]) {
+        const g = oid(ca.groupId);
+        const s = oid(ca.subjectId);
+        const t = oid(ca.teacherId);
+        const k = `${g}|${s}|${t}`;
+        if (seen.has(k)) continue;
+        seen.add(k);
+        triples.push({ groupId: g, subjectId: s, teacherId: t });
+      }
+
+      await this.validateStudentScheduleConflicts({ periodId, studentId, candidateTriples: triples });
     }
 
     const pid = new Types.ObjectId(periodId);
@@ -268,9 +449,6 @@ export class CourseEnrollmentsService {
     };
   }
 
-  /**
-   * ✅ Cuando cambia de grupo base: desactivar CourseEnrollments del grupo anterior.
-   */
   async deactivateByStudentAndGroup(params: { periodId: string; studentId: string; groupId: string }) {
     const { periodId, studentId, groupId } = params;
 
@@ -290,9 +468,6 @@ export class CourseEnrollmentsService {
     return { ok: true, matched: res?.matchedCount ?? res?.n ?? 0, modified: res?.modifiedCount ?? res?.nModified ?? 0 };
   }
 
-  /**
-   * ✅ Cuando se da de baja del periodo: desactivar TODO en ese periodo.
-   */
   async deactivateByStudentAndPeriod(params: { periodId: string; studentId: string }) {
     const { periodId, studentId } = params;
 
@@ -335,11 +510,33 @@ export class CourseEnrollmentsService {
     const classAssignments = await this.classAssignments.findAll({ periodId, groupId, status: 'active' });
 
     if (studentIds.length === 0) {
-      return { ok: true, studentsSource, periodId, groupId, students: 0, classAssignments: classAssignments?.length ?? 0, attempted: 0, upserted: 0, matched: 0, modified: 0 };
+      return {
+        ok: true,
+        studentsSource,
+        periodId,
+        groupId,
+        students: 0,
+        classAssignments: classAssignments?.length ?? 0,
+        attempted: 0,
+        upserted: 0,
+        matched: 0,
+        modified: 0,
+      };
     }
 
     if (!classAssignments || classAssignments.length === 0) {
-      return { ok: true, studentsSource, periodId, groupId, students: studentIds.length, classAssignments: 0, attempted: 0, upserted: 0, matched: 0, modified: 0 };
+      return {
+        ok: true,
+        studentsSource,
+        periodId,
+        groupId,
+        students: studentIds.length,
+        classAssignments: 0,
+        attempted: 0,
+        upserted: 0,
+        matched: 0,
+        modified: 0,
+      };
     }
 
     const pid = new Types.ObjectId(periodId);

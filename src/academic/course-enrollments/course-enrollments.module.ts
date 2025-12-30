@@ -6,6 +6,7 @@ import { CourseEnrollmentsService } from './course-enrollments.service';
 import { CourseEnrollment, CourseEnrollmentSchema } from './schemas/course-enrollment.schema';
 
 import { ClassAssignmentsModule } from '../class-assignments/class-assignments.module';
+import { ScheduleBlocksModule } from '../schedule-blocks/schedule-blocks.module';
 import { StudentsModule } from '../students/students.module';
 import { EnrollmentsModule } from '../enrollments/enrollments.module';
 
@@ -13,6 +14,7 @@ import { EnrollmentsModule } from '../enrollments/enrollments.module';
   imports: [
     MongooseModule.forFeature([{ name: CourseEnrollment.name, schema: CourseEnrollmentSchema }]),
     ClassAssignmentsModule,
+    ScheduleBlocksModule,
     StudentsModule,
     forwardRef(() => EnrollmentsModule),
   ],
