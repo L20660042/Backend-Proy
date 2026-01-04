@@ -123,12 +123,10 @@ function normalizeDeliveryMode(raw: any): DeliveryMode {
 
   if (!s) return 'presencial';
 
-  // directos
   if (s === 'presencial') return 'presencial';
   if (s === 'semipresencial' || s === 'semi-presencial' || s === 'semi') return 'semipresencial';
   if (s === 'asincrono' || s === 'asíncrono' || s === 'async') return 'asincrono';
 
-  // tolerancias comunes (tu enum NO tiene virtual/hibrido, por eso se mapean)
   if (['virtual', 'enlinea', 'enlínea', 'enlinea', 'online'].includes(s)) return 'asincrono';
   if (['hibrido', 'híbrido', 'mixto', 'blended'].includes(s)) return 'semipresencial';
 
@@ -209,8 +207,6 @@ export class ImportService {
     private readonly activityEnrollmentsService: ActivityEnrollmentsService,
   ) {}
 
-  // -------------------------
-  // Helpers de lookup
   private async getPeriodByName(periodName: string) {
     const key = norm(periodName);
     if (!key) throw new BadRequestException('periodName requerido');
@@ -223,7 +219,6 @@ export class ImportService {
       return direct as any;
     }
 
-    // tolera variantes: "ENE-JUN 2026" vs "Ene-Jun 2026"
     const safe = key.replace(/\s+/g, ' ').trim();
     const alt = await this.periodModel.findOne({ name: new RegExp(`^${safe}$`, 'i') }).exec();
     if (alt) {
@@ -297,7 +292,8 @@ export class ImportService {
     this.teacherCache.set(n, doc as any);
     return doc as any;
   }
-async importPeriods(file: Express.Multer.File, dryRun = false): Promise<ImportResult> {
+
+  async importPeriods(file: Express.Multer.File, dryRun = false): Promise<ImportResult> {
     const rows = parseCsv(file);
     const errors: ImportError[] = [];
     let created = 0,
@@ -354,9 +350,7 @@ async importPeriods(file: Express.Multer.File, dryRun = false): Promise<ImportRe
 
         updated++;
         if (!dryRun) {
-          await this.periodModel
-            .updateOne({ _id: existing._id }, { $set: { startDate, endDate, isActive } })
-            .exec();
+          await this.periodModel.updateOne({ _id: existing._id }, { $set: { startDate, endDate, isActive } }).exec();
         }
       } catch (e: any) {
         failed++;
@@ -366,6 +360,7 @@ async importPeriods(file: Express.Multer.File, dryRun = false): Promise<ImportRe
 
     return { entity: 'periods', dryRun, total: rows.length, created, updated, skipped, failed, errors };
   }
+
   async importCareers(file: Express.Multer.File, dryRun = false): Promise<ImportResult> {
     const rows = parseCsv(file);
     const errors: ImportError[] = [];
@@ -399,8 +394,7 @@ async importPeriods(file: Express.Multer.File, dryRun = false): Promise<ImportRe
           continue;
         }
 
-        const needsUpdate =
-          String(existing.name) !== name || String((existing as any).status ?? 'active') !== String(status);
+        const needsUpdate = String(existing.name) !== name || String((existing as any).status ?? 'active') !== String(status);
 
         if (!needsUpdate) {
           skipped++;
@@ -410,10 +404,7 @@ async importPeriods(file: Express.Multer.File, dryRun = false): Promise<ImportRe
         updated++;
         if (!dryRun) {
           await this.careerModel
-            .updateOne(
-              { _id: existing._id },
-              { $set: { name, status: status === 'inactive' ? 'inactive' : 'active' } },
-            )
+            .updateOne({ _id: existing._id }, { $set: { name, status: status === 'inactive' ? 'inactive' : 'active' } })
             .exec();
         }
       } catch (e: any) {
@@ -424,6 +415,7 @@ async importPeriods(file: Express.Multer.File, dryRun = false): Promise<ImportRe
 
     return { entity: 'careers', dryRun, total: rows.length, created, updated, skipped, failed, errors };
   }
+
   async importTeachers(file: Express.Multer.File, dryRun = false): Promise<ImportResult> {
     const rows = parseCsv(file);
     const errors: ImportError[] = [];
@@ -437,14 +429,13 @@ async importPeriods(file: Express.Multer.File, dryRun = false): Promise<ImportRe
       const rowNum = i + 2;
 
       try {
-        const employeeNumber = norm(pick(row, ['employeeNumber', 'teacherEmployeeNumber']));
+        const employeeNumber = norm(pick(row, ['employeeNumber', 'teacherEmployeeNumber', 'noEmpleado']));
         const name = norm(pick(row, ['name', 'teacherName']));
-        const email = norm(pick(row, ['email']));
+        const divisionId = norm(pick(row, ['divisionId'])) || null;
         const status = norm(pick(row, ['status'])) || 'active';
 
         if (!employeeNumber) throw new BadRequestException('employeeNumber requerido');
         if (!name) throw new BadRequestException('name requerido');
-        if (!email) throw new BadRequestException('email requerido');
 
         const existing = await this.teacherModel.findOne({ employeeNumber }).exec();
         if (!existing) {
@@ -453,17 +444,19 @@ async importPeriods(file: Express.Multer.File, dryRun = false): Promise<ImportRe
             await this.teacherModel.create({
               employeeNumber,
               name,
-              email,
-              status: status === 'inactive' ? 'inactive' : 'active',
+              divisionId,
+              status: status === 'inactive' ? 'inactive' : status === 'suspended' ? 'suspended' : 'active',
             } as any);
           }
           continue;
         }
 
+        const nextStatus = status === 'inactive' ? 'inactive' : status === 'suspended' ? 'suspended' : 'active';
+
         const needsUpdate =
           String(existing.name) !== name ||
-          String((existing as any).email ?? '') !== email ||
-          String((existing as any).status ?? 'active') !== status;
+          String((existing as any).divisionId ?? null) !== String(divisionId ?? null) ||
+          String((existing as any).status ?? 'active') !== nextStatus;
 
         if (!needsUpdate) {
           skipped++;
@@ -472,21 +465,21 @@ async importPeriods(file: Express.Multer.File, dryRun = false): Promise<ImportRe
 
         updated++;
         if (!dryRun) {
-          await this.teacherModel
-            .updateOne(
-              { _id: existing._id },
-              { $set: { name, email, status: status === 'inactive' ? 'inactive' : 'active' } },
-            )
-            .exec();
+          await this.teacherModel.updateOne({ _id: existing._id }, { $set: { name, divisionId, status: nextStatus } }).exec();
         }
       } catch (e: any) {
         failed++;
-        errors.push({ row: rowNum, message: e?.response?.message ?? e?.message ?? 'Error desconocido', data: row });
+        errors.push({
+          row: rowNum,
+          message: e?.response?.message ?? e?.message ?? 'Error desconocido',
+          data: row,
+        });
       }
     }
 
     return { entity: 'teachers', dryRun, total: rows.length, created, updated, skipped, failed, errors };
   }
+
   async importSubjects(file: Express.Multer.File, dryRun = false): Promise<ImportResult> {
     const rows = parseCsv(file);
     const errors: ImportError[] = [];
@@ -502,24 +495,25 @@ async importPeriods(file: Express.Multer.File, dryRun = false): Promise<ImportRe
       try {
         const code = normUpper(pick(row, ['code', 'subjectCode']));
         const name = norm(pick(row, ['name', 'subjectName']));
-        const creditsRaw = pick(row, ['credits', 'creditos']);
-        const unitsRaw = pick(row, ['units', 'unidades', 'unitCount']);
-        const status = norm(pick(row, ['status'])) || 'active';
+        const semesterRaw = pick(row, ['semester', 'semestre']);
+        const careerIdRaw = norm(pick(row, ['careerId']));
+        const careerCode = normUpper(pick(row, ['careerCode', 'career']));
 
         if (!code) throw new BadRequestException('code requerido');
         if (!name) throw new BadRequestException('name requerido');
 
-        const credits =
-          creditsRaw === undefined || creditsRaw === null || String(creditsRaw).trim() === ''
-            ? null
-            : Number(String(creditsRaw).trim());
-        const units =
-          unitsRaw === undefined || unitsRaw === null || String(unitsRaw).trim() === ''
-            ? null
-            : Number(String(unitsRaw).trim());
+        const semester = Number(String(semesterRaw ?? '').trim());
+        if (!semesterRaw || Number.isNaN(semester) || semester < 1) throw new BadRequestException('semester requerido');
 
-        if (credits !== null && (Number.isNaN(credits) || credits < 0)) throw new BadRequestException('credits inválido');
-        if (units !== null && (Number.isNaN(units) || units < 1 || units > 10)) throw new BadRequestException('units inválido');
+        let careerId: Types.ObjectId;
+        if (careerIdRaw) {
+          if (!Types.ObjectId.isValid(careerIdRaw)) throw new BadRequestException('careerId inválido');
+          careerId = new Types.ObjectId(careerIdRaw);
+        } else {
+          if (!careerCode) throw new BadRequestException('careerCode requerido');
+          const career = await this.getCareerByCode(careerCode);
+          careerId = career._id as any;
+        }
 
         const existing = await this.subjectModel.findOne({ code }).exec();
         if (!existing) {
@@ -528,9 +522,8 @@ async importPeriods(file: Express.Multer.File, dryRun = false): Promise<ImportRe
             await this.subjectModel.create({
               code,
               name,
-              credits: credits ?? undefined,
-              units: units ?? undefined,
-              status: status === 'inactive' ? 'inactive' : 'active',
+              careerId,
+              semester,
             } as any);
           }
           continue;
@@ -538,9 +531,8 @@ async importPeriods(file: Express.Multer.File, dryRun = false): Promise<ImportRe
 
         const needsUpdate =
           String(existing.name) !== name ||
-          Number((existing as any).credits ?? null) !== Number(credits ?? null) ||
-          Number((existing as any).units ?? null) !== Number(units ?? null) ||
-          String((existing as any).status ?? 'active') !== status;
+          String((existing as any).careerId ?? '') !== String(careerId) ||
+          Number((existing as any).semester ?? null) !== Number(semester);
 
         if (!needsUpdate) {
           skipped++;
@@ -549,28 +541,21 @@ async importPeriods(file: Express.Multer.File, dryRun = false): Promise<ImportRe
 
         updated++;
         if (!dryRun) {
-          await this.subjectModel
-            .updateOne(
-              { _id: existing._id },
-              {
-                $set: {
-                  name,
-                  credits: credits ?? undefined,
-                  units: units ?? undefined,
-                  status: status === 'inactive' ? 'inactive' : 'active',
-                },
-              },
-            )
-            .exec();
+          await this.subjectModel.updateOne({ _id: existing._id }, { $set: { name, careerId, semester } }).exec();
         }
       } catch (e: any) {
         failed++;
-        errors.push({ row: rowNum, message: e?.response?.message ?? e?.message ?? 'Error desconocido', data: row });
+        errors.push({
+          row: rowNum,
+          message: e?.response?.message ?? e?.message ?? 'Error desconocido',
+          data: row,
+        });
       }
     }
 
     return { entity: 'subjects', dryRun, total: rows.length, created, updated, skipped, failed, errors };
   }
+
   async importGroups(file: Express.Multer.File, dryRun = false): Promise<ImportResult> {
     const rows = parseCsv(file);
     const errors: ImportError[] = [];
@@ -630,6 +615,7 @@ async importPeriods(file: Express.Multer.File, dryRun = false): Promise<ImportRe
 
     return { entity: 'groups', dryRun, total: rows.length, created, updated, skipped, failed, errors };
   }
+
   async importStudents(file: Express.Multer.File, dryRun = false): Promise<ImportResult> {
     const rows = parseCsv(file);
 
@@ -645,24 +631,50 @@ async importPeriods(file: Express.Multer.File, dryRun = false): Promise<ImportRe
 
       try {
         const controlNumber = norm(pick(row, ['controlNumber', 'noControl', 'nocontrol']));
-        const firstName = norm(pick(row, ['firstName', 'nombre']));
+        const nameRaw = norm(pick(row, ['name', 'fullName', 'nombreCompleto', 'nombre']));
+        const firstName = norm(pick(row, ['firstName']));
         const lastName = norm(pick(row, ['lastName', 'apellidos']));
+
+        const careerIdRaw = norm(pick(row, ['careerId']));
         const careerCode = normUpper(pick(row, ['careerCode', 'career']));
-        const semesterRaw = pick(row, ['semester', 'semestre']);
-        const semester = semesterRaw ? Number(String(semesterRaw).trim()) : null;
-        const email = norm(pick(row, ['email']));
-        const status = norm(pick(row, ['status'])) || 'active';
+
+        const periodName = norm(pick(row, ['periodName', 'periodo']));
+        const groupName = norm(pick(row, ['groupName', 'grupo', 'group']));
+        const groupIdRaw = norm(pick(row, ['groupId']));
+
+        const status = normalizeStatus(pick(row, ['status']));
 
         if (!controlNumber) throw new BadRequestException('controlNumber requerido');
-        if (!firstName) throw new BadRequestException('firstName requerido');
-        if (!lastName) throw new BadRequestException('lastName requerido');
 
-        // valida carrera si viene
-        if (careerCode) await this.getCareerByCode(careerCode);
+        const name = nameRaw || `${firstName} ${lastName}`.trim();
+        if (!name) throw new BadRequestException('name requerido');
 
-        if (semester !== null && (Number.isNaN(semester) || semester < 1)) throw new BadRequestException('semester inválido');
+        let careerId: Types.ObjectId;
+        if (careerIdRaw) {
+          if (!Types.ObjectId.isValid(careerIdRaw)) throw new BadRequestException('careerId inválido');
+          careerId = new Types.ObjectId(careerIdRaw);
+        } else {
+          if (!careerCode) throw new BadRequestException('careerCode requerido');
+          const career = await this.getCareerByCode(careerCode);
+          careerId = career._id as any;
+        }
 
-        // upsert usando StudentsService (para conservar tu lógica de activación/registro)
+        let groupId: Types.ObjectId | null = null;
+
+        if (groupIdRaw) {
+          if (!Types.ObjectId.isValid(groupIdRaw)) throw new BadRequestException('groupId inválido');
+          groupId = new Types.ObjectId(groupIdRaw);
+        } else if (periodName && groupName) {
+          const period = await this.getPeriodByName(periodName);
+          const g = await this.groupModel.findOne({ periodId: period._id, careerId: careerId, name: groupName }).exec();
+          if (!g) {
+            throw new BadRequestException(
+              `No existe Group "${groupName}" para ese periodo/carrera (period="${periodName}", career="${careerCode || careerIdRaw}")`,
+            );
+          }
+          groupId = g._id as any;
+        }
+
         const existing = await this.studentModel.findOne({ controlNumber }).exec();
 
         if (!existing) {
@@ -670,23 +682,19 @@ async importPeriods(file: Express.Multer.File, dryRun = false): Promise<ImportRe
           if (!dryRun) {
             await this.studentsService.create({
               controlNumber,
-              firstName,
-              lastName,
-              careerCode: careerCode || undefined,
-              semester: semester ?? undefined,
-              email: email || undefined,
-              status: status as any,
+              name,
+              careerId: String(careerId),
+              groupId: groupId ? String(groupId) : undefined,
+              status,
             } as any);
           }
           continue;
         }
 
         const needsUpdate =
-          String((existing as any).firstName ?? '') !== firstName ||
-          String((existing as any).lastName ?? '') !== lastName ||
-          String((existing as any).careerCode ?? '') !== String(careerCode ?? '') ||
-          Number((existing as any).semester ?? null) !== Number(semester ?? null) ||
-          String((existing as any).email ?? '') !== String(email ?? '') ||
+          String((existing as any).name ?? '') !== name ||
+          String((existing as any).careerId ?? '') !== String(careerId) ||
+          String((existing as any).groupId ?? '') !== String(groupId ?? '') ||
           String((existing as any).status ?? 'active') !== String(status);
 
         if (!needsUpdate) {
@@ -697,12 +705,10 @@ async importPeriods(file: Express.Multer.File, dryRun = false): Promise<ImportRe
         updated++;
         if (!dryRun) {
           await this.studentsService.update(String((existing as any)._id), {
-            firstName,
-            lastName,
-            careerCode: careerCode || undefined,
-            semester: semester ?? undefined,
-            email: email || undefined,
-            status: status as any,
+            name,
+            careerId: String(careerId),
+            groupId: groupId ? String(groupId) : null,
+            status,
           } as any);
         }
       } catch (e: any) {
@@ -722,7 +728,8 @@ async importPeriods(file: Express.Multer.File, dryRun = false): Promise<ImportRe
       errors,
     };
   }
-async importEnrollments(file: Express.Multer.File, dryRun = false): Promise<ImportResult> {
+
+  async importEnrollments(file: Express.Multer.File, dryRun = false): Promise<ImportResult> {
     const rows = parseCsv(file);
 
     const errors: ImportError[] = [];
@@ -754,13 +761,11 @@ async importEnrollments(file: Express.Multer.File, dryRun = false): Promise<Impo
         const student = await this.studentModel.findOne({ controlNumber: studentControlNumber }).exec();
         if (!student) throw new BadRequestException(`No existe Student con controlNumber="${studentControlNumber}"`);
 
-        // Dry-run: solo validar referencias
         if (dryRun) {
           skipped++;
           continue;
         }
 
-        // antes / después para saber si cambió algo
         const before = await this.enrollmentsService.list({
           periodId: String(period._id),
           studentId: String((student as any)._id),
@@ -797,7 +802,8 @@ async importEnrollments(file: Express.Multer.File, dryRun = false): Promise<Impo
       errors,
     };
   }
- async importClassAssignments(file: Express.Multer.File, dryRun = false): Promise<ImportResult> {
+
+  async importClassAssignments(file: Express.Multer.File, dryRun = false): Promise<ImportResult> {
     const rows = parseCsv(file);
 
     const errors: ImportError[] = [];
@@ -829,7 +835,6 @@ async importEnrollments(file: Express.Multer.File, dryRun = false): Promise<Impo
         const subject = await this.getSubjectByCode(subjectCode);
         const teacher = await this.getTeacherByEmployeeNumber(teacherEmployeeNumber);
 
-        // Upsert por (period + group + subject)
         const existing = await this.caModel
           .findOne({
             periodId: period._id,
@@ -886,6 +891,7 @@ async importEnrollments(file: Express.Multer.File, dryRun = false): Promise<Impo
       errors,
     };
   }
+
   async importActivities(file: Express.Multer.File, dryRun = false): Promise<ImportResult> {
     const rows = parseCsv(file);
 
@@ -920,7 +926,6 @@ async importEnrollments(file: Express.Multer.File, dryRun = false): Promise<Impo
 
         const period = await this.getPeriodByName(periodName);
 
-        // Upsert por (periodId + name)
         const existing = await this.activityModel.findOne({ periodId: period._id, name }).exec();
 
         if (!existing) {
@@ -982,7 +987,8 @@ async importEnrollments(file: Express.Multer.File, dryRun = false): Promise<Impo
       errors,
     };
   }
- async importActivityEnrollments(file: Express.Multer.File, dryRun = false): Promise<ImportResult> {
+
+  async importActivityEnrollments(file: Express.Multer.File, dryRun = false): Promise<ImportResult> {
     const rows = parseCsv(file);
 
     const errors: ImportError[] = [];
@@ -1015,7 +1021,6 @@ async importEnrollments(file: Express.Multer.File, dryRun = false): Promise<Impo
           throw new BadRequestException(`No existe Activity con name="${activityName}" en el periodo "${periodName}"`);
         }
 
-        // Dry-run: solo validar referencias
         if (dryRun) {
           skipped++;
           continue;
@@ -1047,7 +1052,6 @@ async importEnrollments(file: Express.Multer.File, dryRun = false): Promise<Impo
           continue;
         }
 
-        // Reactivar requiere validar choques
         if (targetStatus === 'active') {
           await this.activityEnrollmentsService.validateStudentScheduleConflictsForActivity({
             periodId: String((period as any)._id),
@@ -1076,7 +1080,7 @@ async importEnrollments(file: Express.Multer.File, dryRun = false): Promise<Impo
     };
   }
 
-   async importScheduleBlocks(file: Express.Multer.File, dryRun = false): Promise<ImportResult> {
+  async importScheduleBlocks(file: Express.Multer.File, dryRun = false): Promise<ImportResult> {
     const rows = parseCsv(file);
 
     const errors: ImportError[] = [];
@@ -1091,7 +1095,9 @@ async importEnrollments(file: Express.Multer.File, dryRun = false): Promise<Impo
 
       try {
         const periodName = norm(pick(row, ['periodName', 'period']));
-        const type = norm(pick(row, ['type'])) || 'class';
+        const rawType = norm(pick(row, ['type'])) || 'class';
+        const type = rawType === 'extracurricular' ? 'extracurricular' : 'class';
+
         const deliveryMode = normalizeDeliveryMode(pick(row, ['deliveryMode', 'mode', 'modalidad']));
         const dayOfWeek = normalizeDayOfWeek(pick(row, ['dayOfWeek', 'day', 'dia']));
         const startTime = normalizeHHMM(pick(row, ['startTime', 'start']), 'startTime');
@@ -1105,8 +1111,6 @@ async importEnrollments(file: Express.Multer.File, dryRun = false): Promise<Impo
         const activityName = norm(pick(row, ['activityName', 'actividad', 'name']));
 
         if (!periodName) throw new BadRequestException('periodName requerido');
-        if (!startTime) throw new BadRequestException('startTime requerido');
-        if (!endTime) throw new BadRequestException('endTime requerido');
 
         const period = await this.getPeriodByName(periodName);
 
@@ -1118,7 +1122,8 @@ async importEnrollments(file: Express.Multer.File, dryRun = false): Promise<Impo
         if (type === 'extracurricular') {
           if (!activityName) throw new BadRequestException('activityName requerido para type=extracurricular');
           activity = await this.activityModel.findOne({ periodId: period._id, name: activityName }).exec();
-          if (!activity) throw new BadRequestException(`No existe Activity con name="${activityName}" en el periodo "${periodName}"`);
+          if (!activity)
+            throw new BadRequestException(`No existe Activity con name="${activityName}" en el periodo "${periodName}"`);
         } else {
           if (!careerCode) throw new BadRequestException('careerCode requerido');
           if (!groupName) throw new BadRequestException('groupName requerido');
@@ -1130,19 +1135,19 @@ async importEnrollments(file: Express.Multer.File, dryRun = false): Promise<Impo
           teacher = await this.getTeacherByEmployeeNumber(teacherEmployeeNumber);
         }
 
-        // upsert por llave natural (period+type+day+start+end+ref)
         const filter: any = {
           periodId: period._id,
-          type: type === 'extracurricular' ? 'extracurricular' : 'class',
+          type,
           dayOfWeek,
           startTime,
           endTime,
         };
-        if (type === 'extracurricular') filter.activityId = activity?._id;
-        else {
+
+        if (type === 'extracurricular') {
+          filter.activityId = activity?._id;
+        } else {
           filter.groupId = group?._id;
           filter.subjectId = subject?._id;
-          filter.teacherId = teacher?._id;
         }
 
         const existing = await this.sbModel.findOne(filter).exec();
@@ -1152,7 +1157,7 @@ async importEnrollments(file: Express.Multer.File, dryRun = false): Promise<Impo
           if (!dryRun) {
             await this.scheduleBlocksService.create({
               periodId: String(period._id),
-              type: type === 'extracurricular' ? 'extracurricular' : 'class',
+              type,
               deliveryMode,
               dayOfWeek,
               startTime,
@@ -1169,7 +1174,8 @@ async importEnrollments(file: Express.Multer.File, dryRun = false): Promise<Impo
 
         const needsUpdate =
           String((existing as any).deliveryMode ?? 'presencial') !== String(deliveryMode) ||
-          String((existing as any).room ?? '') !== String(room ?? '');
+          String((existing as any).room ?? '') !== String(room ?? '') ||
+          (type === 'class' && String((existing as any).teacherId ?? '') !== String(teacher?._id ?? ''));
 
         if (!needsUpdate) {
           skipped++;
@@ -1181,6 +1187,7 @@ async importEnrollments(file: Express.Multer.File, dryRun = false): Promise<Impo
           await this.scheduleBlocksService.update(String((existing as any)._id), {
             deliveryMode,
             room,
+            teacherId: type === 'class' ? String(teacher._id) : undefined,
           } as any);
         }
       } catch (e: any) {

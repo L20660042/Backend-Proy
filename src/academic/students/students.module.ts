@@ -3,9 +3,13 @@ import { MongooseModule } from '@nestjs/mongoose';
 import { Student, StudentSchema } from './schemas/student.schema';
 import { StudentsController } from './students.controller';
 import { StudentsService } from './students.service';
+import { UsersModule } from '../../users/users.module';
 
 @Module({
-  imports: [MongooseModule.forFeature([{ name: Student.name, schema: StudentSchema }])],
+  imports: [
+    MongooseModule.forFeature([{ name: Student.name, schema: StudentSchema }]),
+    UsersModule,
+  ],
   controllers: [StudentsController],
   providers: [StudentsService],
   exports: [StudentsService],
