@@ -6,13 +6,13 @@ export type TeacherDocument = HydratedDocument<Teacher>;
 @Schema({ timestamps: true })
 export class Teacher {
   @Prop({ required: true, trim: true })
-  name: string; // Nombre completo
+  name: string;
 
   @Prop({ required: true, unique: true, trim: true })
-  employeeNumber: string; // No. empleado / RFC corto / identificador interno
+  employeeNumber: string;
 
   @Prop({ type: String, default: null })
-  divisionId?: string | null; // opcional
+  divisionId?: string | null;
 
   @Prop({ type: String, default: 'active' })
   status: 'active' | 'inactive' | 'suspended';
@@ -20,6 +20,5 @@ export class Teacher {
 
 export const TeacherSchema = SchemaFactory.createForClass(Teacher);
 
-TeacherSchema.index({ employeeNumber: 1 }, { unique: true });
 TeacherSchema.index({ status: 1 });
 TeacherSchema.index({ divisionId: 1 });

@@ -9,7 +9,7 @@ export class Student {
   controlNumber: string; // No. control (ej: "20660042")
 
   @Prop({ required: true, trim: true })
-  name: string; // Nombre completo
+  name: string; 
 
   @Prop({ type: Types.ObjectId, ref: 'Career', required: true, index: true })
   careerId: Types.ObjectId;
@@ -23,6 +23,5 @@ export class Student {
 
 export const StudentSchema = SchemaFactory.createForClass(Student);
 
-StudentSchema.index({ controlNumber: 1 }, { unique: true });
 StudentSchema.index({ careerId: 1, status: 1 });
 StudentSchema.index({ groupId: 1, status: 1 });

@@ -33,12 +33,18 @@ export class GroupsService {
 
     return this.model
       .find(filter)
+      .populate('careerId', 'code name')
+      .populate('periodId', 'name isActive')
       .sort({ semester: 1, name: 1 })
       .exec();
   }
 
   async findOne(id: string) {
-    const doc = await this.model.findById(id).exec();
+    const doc = await this.model
+      .findById(id)
+      .populate('careerId', 'code name')
+      .populate('periodId', 'name isActive')
+      .exec();
     if (!doc) throw new NotFoundException('Grupo no encontrado');
     return doc;
   }

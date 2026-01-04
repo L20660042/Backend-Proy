@@ -1,12 +1,14 @@
 import { Injectable, NotFoundException, ForbiddenException, BadRequestException } from '@nestjs/common';
 import { ScheduleBlocksService } from '../schedule-blocks/schedule-blocks.service';
 import { CourseEnrollmentsService } from '../course-enrollments/course-enrollments.service';
+import { ActivityEnrollmentsService } from '../activity-enrollments/activity-enrollments.service';
 
 @Injectable()
 export class ScheduleService {
   constructor(
     private readonly courseEnrollments: CourseEnrollmentsService,
     private readonly blocks: ScheduleBlocksService,
+    private readonly activityEnrollments: ActivityEnrollmentsService,
   ) {}
 
   async getTeacherSchedule(periodId: string, teacherId: string) {
@@ -22,29 +24,48 @@ export class ScheduleService {
   async getStudentSchedule(periodId: string, studentId: string) {
     if (!periodId) throw new BadRequestException('periodId requerido');
 
+    // 1) Horario de clases (por course-enrollments)
     const ces = await this.courseEnrollments.findActiveByStudentAndPeriod(periodId, studentId);
+    let classBlocks: any[] = [];
+    if (ces && (ces as any[]).length > 0) {
+      // Deduplicar triples por si hay registros repetidos por errores previos
+      const seen = new Set<string>();
+      const triples: Array<{ groupId: string; subjectId: string; teacherId: string }> = [];
 
-    if (!ces || ces.length === 0) {
-      throw new NotFoundException('El alumno no tiene materias inscritas (course-enrollments) en ese periodo');
+      for (const ce of ces as any[]) {
+        const groupId = String(ce.groupId);
+        const subjectId = String(ce.subjectId);
+        const teacherId = String(ce.teacherId);
+
+        const key = `${groupId}|${subjectId}|${teacherId}`;
+        if (seen.has(key)) continue;
+        seen.add(key);
+
+        triples.push({ groupId, subjectId, teacherId });
+      }
+
+      classBlocks = await this.blocks.findByClassTriples({ periodId, triples });
     }
 
-    // Deduplicar triples por si hay registros repetidos por errores previos
-    const seen = new Set<string>();
-    const triples: Array<{ groupId: string; subjectId: string; teacherId: string }> = [];
-
-    for (const ce of ces as any[]) {
-      const groupId = String(ce.groupId);
-      const subjectId = String(ce.subjectId);
-      const teacherId = String(ce.teacherId);
-
-      const key = `${groupId}|${subjectId}|${teacherId}`;
-      if (seen.has(key)) continue;
-      seen.add(key);
-
-      triples.push({ groupId, subjectId, teacherId });
+    // 2) Horario de extraescolares (por activity-enrollments)
+    const aes = await this.activityEnrollments.findActiveByStudentAndPeriod(periodId, studentId);
+    let extraBlocks: any[] = [];
+    if (aes && (aes as any[]).length > 0) {
+      const activityIds = (aes as any[]).map((a) => String(a.activityId));
+      extraBlocks = await this.blocks.findByActivityIds({ periodId, activityIds });
     }
 
-    return this.blocks.findByClassTriples({ periodId, triples });
+    const merged = [...(classBlocks ?? []), ...(extraBlocks ?? [])];
+    if (merged.length === 0) {
+      throw new NotFoundException('El alumno no tiene bloques de horario (clases o extraescolares) en ese periodo');
+    }
+
+    merged.sort((a: any, b: any) => {
+      if (a.dayOfWeek !== b.dayOfWeek) return a.dayOfWeek - b.dayOfWeek;
+      return String(a.startTime).localeCompare(String(b.startTime));
+    });
+
+    return merged;
   }
 
   // /academic/schedule/me

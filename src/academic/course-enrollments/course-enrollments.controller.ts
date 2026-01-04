@@ -21,6 +21,7 @@ import { Role } from '../../auth/roles.enum';
 import { CourseEnrollmentsService } from './course-enrollments.service';
 import { CreateCourseEnrollmentDto } from './dto/create-course-enrollment.dto';
 import { UpdateCourseEnrollmentDto } from './dto/update-course-enrollment.dto';
+import { UpdateCourseEnrollmentGradesDto } from './dto/update-course-enrollment-grades.dto';
 import { ClassAssignmentsService } from '../class-assignments/class-assignments.service';
 
 @Controller('academic/course-enrollments')
@@ -50,7 +51,6 @@ export class CourseEnrollmentsController {
     const isTeacher = roles.includes(Role.DOCENTE);
     const isStudent = roles.includes(Role.ALUMNO);
 
-    // Caso DOCENTE: requiere classAssignmentId y valida propiedad
     if (isTeacher) {
       if (!classAssignmentId) throw new BadRequestException('classAssignmentId requerido para docente');
 
@@ -72,13 +72,34 @@ export class CourseEnrollmentsController {
       });
     }
 
-    // Caso ALUMNO: lista sus course-enrollments del periodo
     if (isStudent) {
       return this.service.list({
         periodId,
         studentId: String(linkedId),
         status: s,
       });
+    }
+
+    throw new ForbiddenException('Rol no autorizado');
+  }
+
+  @Roles(Role.DOCENTE, Role.SUPERADMIN, Role.ADMIN, Role.SERVICIOS_ESCOLARES)
+  @Patch(':id/grades')
+  async updateGrades(@Req() req: any, @Param('id') id: string, @Body() dto: UpdateCourseEnrollmentGradesDto) {
+    const roles: string[] = req.user?.roles ?? [];
+    const teacherId = req.user?.linkedEntityId;
+
+    const isTeacher = roles.includes(Role.DOCENTE);
+    const isAdmin =
+      roles.includes(Role.SUPERADMIN) || roles.includes(Role.ADMIN) || roles.includes(Role.SERVICIOS_ESCOLARES);
+
+    if (isTeacher) {
+      if (!teacherId) throw new ForbiddenException('Usuario sin linkedEntityId (docente)');
+      return this.service.updateGradesAsTeacher(id, String(teacherId), dto);
+    }
+
+    if (isAdmin) {
+      return this.service.updateGradesAsAdmin(id, dto);
     }
 
     throw new ForbiddenException('Rol no autorizado');
@@ -121,6 +142,15 @@ export class CourseEnrollmentsController {
   create(@Body() dto: CreateCourseEnrollmentDto) {
     return this.service.create(dto);
   }
+  @Roles(Role.ALUMNO)
+  @Get('me/kardex')
+  async myKardex(@Req() req: any, @Query('periodId') periodId?: string) {
+    const studentId = req.user?.linkedEntityId;
+    if (!studentId) throw new ForbiddenException('Usuario sin linkedEntityId');
+    if (!periodId) throw new BadRequestException('periodId requerido');
+    return this.service.getMyKardex(String(periodId), String(studentId));
+  }
+
 
   @Roles(Role.DOCENTE, Role.SUPERADMIN, Role.ADMIN, Role.SERVICIOS_ESCOLARES)
   @Patch(':id')
@@ -136,7 +166,6 @@ export class CourseEnrollmentsController {
       return this.service.updateAsAdmin(id, dto);
     }
 
-    // Docente
     const teacherId = req.user?.linkedEntityId;
     if (!teacherId) throw new ForbiddenException('Usuario sin linkedEntityId (docente)');
     return this.service.updateAsTeacher(id, String(teacherId), dto);

@@ -18,6 +18,9 @@ import { ScheduleModule } from './academic/schedule/schedule.module';
 import { CourseEnrollmentsModule } from './academic/course-enrollments/course-enrollments.module';
 import { ImportModule } from './academic/import/import.module';
 import { FeedbackModule } from './feedback/feedback.module';
+import { ActivitiesModule } from './academic/activities/activities.module';
+import { ActivityEnrollmentsModule } from './academic/activity-enrollments/activity-enrollments.module';
+import { GradesAnalyticsModule } from './academic/grades-analytics/grades-analytics.module';
 
 
 @Module({
@@ -32,6 +35,8 @@ import { FeedbackModule } from './feedback/feedback.module';
     HealthModule,
     UsersModule,
     AuthModule,
+    ActivitiesModule,
+    ActivityEnrollmentsModule,
     FeedbackModule,
     CourseEnrollmentsModule,
     SeedModule,
@@ -46,6 +51,7 @@ import { FeedbackModule } from './feedback/feedback.module';
     ClassAssignmentsModule,
     ScheduleBlocksModule,
     ScheduleModule,
+    GradesAnalyticsModule,
   ],
 })
 export class AppModule {}

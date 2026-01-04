@@ -1,22 +1,48 @@
 import { BadRequestException, Injectable } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
-import { Model } from 'mongoose';
+import { Model, Types } from 'mongoose';
 
 import { TeacherEvaluation, TeacherEvaluationDocument } from '../evaluations/schemas/teacher-evaluation.schema';
 import { TeacherComplaint, TeacherComplaintDocument } from '../complaints/schemas/teacher-complaint.schema';
 import { EVALUATION_ITEMS } from '../evaluations/evaluation-template';
+import { Teacher, TeacherDocument } from '../../academic/teachers/schemas/teacher.schema';
+
+type Bucket = 'day' | 'week' | 'month';
+
+function asObjectId(id: string) {
+  if (!Types.ObjectId.isValid(id)) throw new BadRequestException('periodId inválido');
+  return new Types.ObjectId(id);
+}
+
+function normSentimentLabel(x: any): 'positive' | 'neutral' | 'negative' | 'unknown' {
+  const s = String(x ?? '').trim().toLowerCase();
+  if (!s) return 'unknown';
+  if (['positive', 'positivo', 'pos', 'posi', 'p'].includes(s)) return 'positive';
+  if (['negative', 'negativo', 'neg', 'n'].includes(s)) return 'negative';
+  if (['neutral', 'neutro', 'neu'].includes(s)) return 'neutral';
+  if (s.includes('pos')) return 'positive';
+  if (s.includes('neg')) return 'negative';
+  if (s.includes('neu')) return 'neutral';
+  return 'unknown';
+}
+
+function bucketExpr(bucket: Bucket) {
+  if (bucket === 'day') return { $dateToString: { format: '%Y-%m-%d', date: '$createdAt' } };
+  if (bucket === 'week') return { $dateToString: { format: '%G-W%V', date: '$createdAt' } }; // ISO week
+  return { $dateToString: { format: '%Y-%m', date: '$createdAt' } };
+}
 
 @Injectable()
 export class AnalyticsService {
   constructor(
     @InjectModel(TeacherEvaluation.name) private readonly evalModel: Model<TeacherEvaluationDocument>,
     @InjectModel(TeacherComplaint.name) private readonly compModel: Model<TeacherComplaintDocument>,
+    @InjectModel(Teacher.name) private readonly teacherModel: Model<TeacherDocument>,
   ) {}
 
   async overview(periodId: string) {
     if (!periodId) throw new BadRequestException('periodId requerido');
 
-    // 1) Evaluaciones por docente
     const evals = await this.evalModel
       .find({ periodId })
       .select({ teacherId: 1, ratings: 1 })
@@ -42,7 +68,6 @@ export class AnalyticsService {
       }
     }
 
-    // 2) Quejas por docente
     const comps = await this.compModel
       .find({ periodId, teacherId: { $ne: null } })
       .select({ teacherId: 1, status: 1 })
@@ -63,7 +88,6 @@ export class AnalyticsService {
       byTeacher[tid].complaintsOpen = (byTeacher[tid].complaintsOpen ?? 0) + ((c as any).status === 'open' ? 1 : 0);
     }
 
-    // Promedios
     const rows = Object.values(byTeacher).map((t: any) => {
       const n = t.countEvaluations || 0;
       const averages: Record<string, number> = {};
@@ -80,12 +104,221 @@ export class AnalyticsService {
       };
     });
 
-    // Orden: más quejas abiertas primero, luego peor promedio (clarity como proxy)
     rows.sort((a: any, b: any) => {
       if (b.complaintsOpen !== a.complaintsOpen) return b.complaintsOpen - a.complaintsOpen;
       return (a.averages.clarity ?? 0) - (b.averages.clarity ?? 0);
     });
 
     return { periodId, items: EVALUATION_ITEMS, teachers: rows };
+  }
+
+  async aiDashboard(opts: { periodId: string; topN: number; bucket: Bucket }) {
+    const { periodId, topN, bucket } = opts;
+    if (!periodId) throw new BadRequestException('periodId requerido');
+
+    const pid = asObjectId(periodId);
+
+    // 1) Sentiment counts (evaluations)
+    const evalSent = await this.evalModel.aggregate([
+      { $match: { periodId: pid, 'analysis.sentiment.label': { $exists: true } } },
+      {
+        $project: {
+          teacherId: 1,
+          label: { $ifNull: ['$analysis.sentiment.label', ''] },
+          createdAt: 1,
+        },
+      },
+      {
+        $group: {
+          _id: { label: '$label' },
+          count: { $sum: 1 },
+        },
+      },
+    ]);
+
+    // 2) Sentiment counts (complaints)
+    const compSent = await this.compModel.aggregate([
+      { $match: { periodId: pid, 'analysis.sentiment.label': { $exists: true } } },
+      {
+        $project: {
+          teacherId: 1,
+          label: { $ifNull: ['$analysis.sentiment.label', ''] },
+          createdAt: 1,
+        },
+      },
+      {
+        $group: {
+          _id: { label: '$label' },
+          count: { $sum: 1 },
+        },
+      },
+    ]);
+
+    const sentiment = { positive: 0, neutral: 0, negative: 0, unknown: 0 };
+    for (const r of [...evalSent, ...compSent]) {
+      const k = normSentimentLabel(r?._id?.label);
+      (sentiment as any)[k] = ((sentiment as any)[k] ?? 0) + Number(r.count ?? 0);
+    }
+
+    // 3) Top topics (evaluations + complaints)
+    const evalTopics = await this.evalModel.aggregate([
+      { $match: { periodId: pid, 'analysis.topics': { $exists: true, $ne: [] } } },
+      { $unwind: '$analysis.topics' },
+      {
+        $project: {
+          label: { $toLower: { $ifNull: ['$analysis.topics.label', ''] } },
+          score: { $ifNull: ['$analysis.topics.score', 1] },
+        },
+      },
+      { $match: { label: { $ne: '' } } },
+      {
+        $group: {
+          _id: '$label',
+          count: { $sum: 1 },
+          weight: { $sum: '$score' },
+        },
+      },
+      { $sort: { count: -1, weight: -1 } },
+      { $limit: Math.max(5, topN) },
+    ]);
+
+    const compTopics = await this.compModel.aggregate([
+      { $match: { periodId: pid, 'analysis.topics': { $exists: true, $ne: [] } } },
+      { $unwind: '$analysis.topics' },
+      {
+        $project: {
+          label: { $toLower: { $ifNull: ['$analysis.topics.label', ''] } },
+          score: { $ifNull: ['$analysis.topics.score', 1] },
+        },
+      },
+      { $match: { label: { $ne: '' } } },
+      {
+        $group: {
+          _id: '$label',
+          count: { $sum: 1 },
+          weight: { $sum: '$score' },
+        },
+      },
+      { $sort: { count: -1, weight: -1 } },
+      { $limit: Math.max(5, topN) },
+    ]);
+
+    const topicMap = new Map<string, { label: string; count: number; weight: number }>();
+    for (const r of [...evalTopics, ...compTopics]) {
+      const label = String(r._id ?? '').trim().toLowerCase();
+      if (!label) continue;
+      const prev = topicMap.get(label) ?? { label, count: 0, weight: 0 };
+      prev.count += Number(r.count ?? 0);
+      prev.weight += Number(r.weight ?? 0);
+      topicMap.set(label, prev);
+    }
+
+    const topTopics = Array.from(topicMap.values())
+      .sort((a, b) => b.count - a.count || b.weight - a.weight)
+      .slice(0, topN);
+
+    // 4) Trend de sentimiento (bucket)
+    const evalTrend = await this.evalModel.aggregate([
+      { $match: { periodId: pid, 'analysis.sentiment.label': { $exists: true } } },
+      {
+        $project: {
+          bucket: bucketExpr(bucket),
+          label: { $ifNull: ['$analysis.sentiment.label', ''] },
+        },
+      },
+      {
+        $group: {
+          _id: { bucket: '$bucket', label: '$label' },
+          count: { $sum: 1 },
+        },
+      },
+    ]);
+
+    const compTrend = await this.compModel.aggregate([
+      { $match: { periodId: pid, 'analysis.sentiment.label': { $exists: true } } },
+      {
+        $project: {
+          bucket: bucketExpr(bucket),
+          label: { $ifNull: ['$analysis.sentiment.label', ''] },
+        },
+      },
+      {
+        $group: {
+          _id: { bucket: '$bucket', label: '$label' },
+          count: { $sum: 1 },
+        },
+      },
+    ]);
+
+    const bucketMap = new Map<string, { bucket: string; positive: number; neutral: number; negative: number; unknown: number }>();
+
+    for (const r of [...evalTrend, ...compTrend]) {
+      const b = String(r?._id?.bucket ?? '');
+      const lab = normSentimentLabel(r?._id?.label);
+      if (!b) continue;
+      const prev =
+        bucketMap.get(b) ?? { bucket: b, positive: 0, neutral: 0, negative: 0, unknown: 0 };
+      (prev as any)[lab] = ((prev as any)[lab] ?? 0) + Number(r.count ?? 0);
+      bucketMap.set(b, prev);
+    }
+
+    const sentimentTrend = Array.from(bucketMap.values()).sort((a, b) => a.bucket.localeCompare(b.bucket));
+
+    // 5) Top docentes por negatividad (eval+complaints)
+    const evalByTeacher = await this.evalModel.aggregate([
+      { $match: { periodId: pid, teacherId: { $ne: null }, 'analysis.sentiment.label': { $exists: true } } },
+      { $project: { teacherId: 1, label: { $ifNull: ['$analysis.sentiment.label', ''] } } },
+      { $group: { _id: { teacherId: '$teacherId', label: '$label' }, count: { $sum: 1 } } },
+    ]);
+
+    const compByTeacher = await this.compModel.aggregate([
+      { $match: { periodId: pid, teacherId: { $ne: null }, 'analysis.sentiment.label': { $exists: true } } },
+      { $project: { teacherId: 1, label: { $ifNull: ['$analysis.sentiment.label', ''] } } },
+      { $group: { _id: { teacherId: '$teacherId', label: '$label' }, count: { $sum: 1 } } },
+    ]);
+
+    const tMap = new Map<string, { teacherId: string; pos: number; neu: number; neg: number; unk: number; total: number }>();
+    for (const r of [...evalByTeacher, ...compByTeacher]) {
+      const tid = String(r?._id?.teacherId ?? '');
+      if (!tid) continue;
+      const prev = tMap.get(tid) ?? { teacherId: tid, pos: 0, neu: 0, neg: 0, unk: 0, total: 0 };
+      const k = normSentimentLabel(r?._id?.label);
+      if (k === 'positive') prev.pos += Number(r.count ?? 0);
+      else if (k === 'neutral') prev.neu += Number(r.count ?? 0);
+      else if (k === 'negative') prev.neg += Number(r.count ?? 0);
+      else prev.unk += Number(r.count ?? 0);
+      prev.total += Number(r.count ?? 0);
+      tMap.set(tid, prev);
+    }
+
+    const teacherIds = Array.from(tMap.keys()).filter((x) => Types.ObjectId.isValid(x)).map((x) => new Types.ObjectId(x));
+    const teachers = await this.teacherModel.find({ _id: { $in: teacherIds } }).select({ name: 1 }).lean();
+    const teacherNameMap = new Map<string, string>(teachers.map((t: any) => [String(t._id), String(t.name ?? '')]));
+
+    const topTeachersByNegativity = Array.from(tMap.values())
+      .map((t) => {
+        const negRate = t.total ? t.neg / t.total : 0;
+        return {
+          teacherId: t.teacherId,
+          teacherName: teacherNameMap.get(t.teacherId) ?? '',
+          total: t.total,
+          negative: t.neg,
+          neutral: t.neu,
+          positive: t.pos,
+          negativeRate: Math.round(negRate * 1000) / 10, // %
+        };
+      })
+      .filter((x) => x.total >= 3) // evita ruido
+      .sort((a, b) => b.negativeRate - a.negativeRate || b.total - a.total)
+      .slice(0, 12);
+
+    return {
+      periodId,
+      bucket,
+      sentiment,
+      topTopics,
+      sentimentTrend,
+      topTeachersByNegativity,
+    };
   }
 }

@@ -33,11 +33,15 @@ export class SubjectsService {
     if (params?.careerId) filter.careerId = new Types.ObjectId(params.careerId);
     if (params?.semester) filter.semester = Number(params.semester);
 
-    return this.model.find(filter).sort({ semester: 1, name: 1 }).exec();
+    return this.model
+      .find(filter)
+      .populate('careerId', 'code name')
+      .sort({ semester: 1, name: 1 })
+      .exec();
   }
 
   async findOne(id: string) {
-    const doc = await this.model.findById(id).exec();
+    const doc = await this.model.findById(id).populate('careerId', 'code name').exec();
     if (!doc) throw new NotFoundException('Materia no encontrada');
     return doc;
   }

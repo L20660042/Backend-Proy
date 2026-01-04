@@ -23,9 +23,11 @@ export class ScheduleBlocksController {
     @Query('periodId') periodId?: string,
     @Query('groupId') groupId?: string,
     @Query('teacherId') teacherId?: string,
+    @Query('activityId') activityId?: string,
+    @Query('type') type?: 'class' | 'extracurricular',
     @Query('dayOfWeek') dayOfWeek?: string,
   ) {
-    return this.service.findAll({ periodId, groupId, teacherId, dayOfWeek });
+    return this.service.findAll({ periodId, groupId, teacherId, activityId, type, dayOfWeek });
   }
 
   @Get(':id')
