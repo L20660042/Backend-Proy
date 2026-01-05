@@ -59,7 +59,6 @@ export class ImportController {
     return this.service.importGroups(file, dryRun === 'true');
   }
 
-  // NUEVO: Activities
   @Post('activities')
   @UseInterceptors(FileInterceptor('file'))
   async importActivities(@UploadedFile() file: Express.Multer.File, @Query('dryRun') dryRun?: string) {
@@ -87,8 +86,6 @@ export class ImportController {
     ensureFile(file);
     return this.service.importEnrollments(file, dryRun === 'true');
   }
-
-  // NUEVO: ActivityEnrollments (inscribir alumnos a actividades)
   @Post('activity-enrollments')
   @UseInterceptors(FileInterceptor('file'))
   async importActivityEnrollments(
@@ -104,5 +101,14 @@ export class ImportController {
   async importScheduleBlocks(@UploadedFile() file: Express.Multer.File, @Query('dryRun') dryRun?: string) {
     ensureFile(file);
     return this.service.importScheduleBlocks(file, dryRun === 'true');
+  }
+    @Post('grades')
+  @UseInterceptors(FileInterceptor('file'))
+  async importGrades(
+    @UploadedFile() file: Express.Multer.File,
+    @Query('dryRun') dryRun?: string,
+  ) {
+    ensureFile(file);
+    return this.service.importGrades(file, dryRun === 'true');
   }
 }
