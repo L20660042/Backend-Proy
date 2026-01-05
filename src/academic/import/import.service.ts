@@ -897,6 +897,7 @@ export class ImportService {
     };
   }
 
+
 async importGrades(file: Express.Multer.File, dryRun = false): Promise<ImportResult> {
   const rows = parseCsv(file);
   const errors: ImportError[] = [];
@@ -915,6 +916,17 @@ async importGrades(file: Express.Multer.File, dryRun = false): Promise<ImportRes
     if (!Number.isFinite(n)) throw new BadRequestException(`${field} inválido: "${s}"`);
     if (n < 0 || n > 100) throw new BadRequestException(`${field} fuera de rango (0..100): "${s}"`);
     return n;
+  }
+
+  function computeFinalFromUnits(units: any): number | null {
+    const vals: number[] = [];
+    for (const k of ['u1', 'u2', 'u3', 'u4', 'u5']) {
+      const v = units?.[k];
+      if (typeof v === 'number' && Number.isFinite(v)) vals.push(v);
+    }
+    if (!vals.length) return null;
+    const avg = vals.reduce((a, b) => a + b, 0) / vals.length;
+    return Math.round(avg * 10) / 10;
   }
 
   for (let i = 0; i < rows.length; i++) {
@@ -959,7 +971,7 @@ async importGrades(file: Express.Multer.File, dryRun = false): Promise<ImportRes
       let ca = await this.caModel.findOne(caFilter).exec();
 
       if (!ca && teacherEmployeeNumber) {
-        // Si no encontró con teacherId, intenta sin teacher (por si el CSV viene sin el dato correcto)
+        // Si no encontró con teacherId, intenta sin teacher (por si el CSV viene con el dato incorrecto)
         const alt = await this.caModel.findOne({
           periodId: period._id,
           groupId: group._id,
@@ -985,22 +997,16 @@ async importGrades(file: Express.Multer.File, dryRun = false): Promise<ImportRes
       const finalGradeRaw = pick(row, ['finalGrade', 'final', 'calificacionFinal', 'calificacionfinal']);
       const finalGrade = finalGradeRaw === undefined ? undefined : parseGrade(finalGradeRaw, 'finalGrade');
 
-      const setOps: any = {};
-      if (u1 !== undefined) setOps['unitGrades.u1'] = u1;
-      if (u2 !== undefined) setOps['unitGrades.u2'] = u2;
-      if (u3 !== undefined) setOps['unitGrades.u3'] = u3;
-      if (u4 !== undefined) setOps['unitGrades.u4'] = u4;
-      if (u5 !== undefined) setOps['unitGrades.u5'] = u5;
-      if (finalGrade !== undefined) setOps['finalGrade'] = finalGrade;
+      // Patch de unidades: SOLO columnas presentes
+      const unitPatch: any = {};
+      if (u1 !== undefined) unitPatch.u1 = u1;
+      if (u2 !== undefined) unitPatch.u2 = u2;
+      if (u3 !== undefined) unitPatch.u3 = u3;
+      if (u4 !== undefined) unitPatch.u4 = u4;
+      if (u5 !== undefined) unitPatch.u5 = u5;
 
-      // Si no hay ninguna columna de calificación, es un CSV inválido.
-      if (Object.keys(setOps).length === 0) throw new BadRequestException('CSV sin columnas de calificación (u1..u5/finalGrade)');
-
-      // metadata
-      if (finalGrade !== undefined || u1 !== undefined || u2 !== undefined || u3 !== undefined || u4 !== undefined || u5 !== undefined) {
-        setOps['gradedAt'] = new Date();
-        if (!teacher) teacher = await this.teacherModel.findById((ca as any).teacherId).exec();
-        if (teacher) setOps['gradedByTeacherId'] = (teacher as any)._id;
+      if (Object.keys(unitPatch).length === 0 && finalGrade === undefined) {
+        throw new BadRequestException('CSV sin columnas de calificación (u1..u5/finalGrade)');
       }
 
       const filter = {
@@ -1008,22 +1014,52 @@ async importGrades(file: Express.Multer.File, dryRun = false): Promise<ImportRes
         studentId: (student as any)._id,
         classAssignmentId: (ca as any)._id,
       };
-      const update: any = {
-      $set: setOps,
-      $setOnInsert: {
-        periodId: period._id,
-        studentId: (student as any)._id,
-        classAssignmentId: (ca as any)._id,
-        groupId: (ca as any).groupId,
-        subjectId: (ca as any).subjectId,
-        teacherId: (ca as any).teacherId,
-        status: 'active',
-      },
-    };
 
+      // Leer existente para mergear unitGrades sin usar rutas con punto.
+      // Esto evita el error Mongo:
+      // "Updating the path 'unitGrades.u1' would create a conflict at 'unitGrades'".
+      const existing = await this.ceModel.findOne(filter).select({ unitGrades: 1, finalGrade: 1 }).lean();
+      const baseUnitGrades = (existing as any)?.unitGrades && typeof (existing as any).unitGrades === 'object'
+        ? (existing as any).unitGrades
+        : {};
+
+      const mergedUnitGrades = { ...baseUnitGrades, ...unitPatch };
+
+      // Si no viene finalGrade en CSV y aún no hay finalGrade, calcula uno simple (promedio unidades numéricas).
+      // Esto ayuda a que el Dashboard académico tenga datos (focos rojos, distribución, etc.).
+      let finalToSet: number | null | undefined = finalGrade;
+      if (finalToSet === undefined) {
+        const currentFinal = (existing as any)?.finalGrade;
+        if (currentFinal === null || currentFinal === undefined) {
+          const computed = computeFinalFromUnits(mergedUnitGrades);
+          if (computed !== null) finalToSet = computed;
+        }
+      }
+
+      const setOps: any = {
+        unitGrades: mergedUnitGrades,
+      };
+      if (finalToSet !== undefined) setOps.finalGrade = finalToSet;
+
+      // metadata
+      setOps.gradedAt = new Date();
+      if (!teacher) teacher = await this.teacherModel.findById((ca as any).teacherId).exec();
+      if (teacher) setOps.gradedByTeacherId = (teacher as any)._id;
+
+      const update: any = {
+        $set: setOps,
+        $setOnInsert: {
+          periodId: period._id,
+          studentId: (student as any)._id,
+          classAssignmentId: (ca as any)._id,
+          groupId: (ca as any).groupId,
+          subjectId: (ca as any).subjectId,
+          teacherId: (ca as any).teacherId,
+          status: 'active',
+        },
+      };
 
       if (dryRun) {
-        // no contamos upserts reales; simulamos como updated
         updated += 1;
         continue;
       }
