@@ -43,8 +43,11 @@ export class AnalyticsService {
   async overview(periodId: string) {
     if (!periodId) throw new BadRequestException('periodId requerido');
 
+    // Usar ObjectId de forma consistente (en otros pipelines también se usa)
+    const pid = asObjectId(periodId);
+
     const evals = await this.evalModel
-      .find({ periodId })
+      .find({ periodId: pid })
       .select({ teacherId: 1, ratings: 1 })
       .populate('teacherId')
       .lean();
@@ -68,18 +71,21 @@ export class AnalyticsService {
       }
     }
 
+    // Incluimos también quejas generales (teacherId=null) para que el overview no quede vacío
+    // cuando el alumno no selecciona una carga.
     const comps = await this.compModel
-      .find({ periodId, teacherId: { $ne: null } })
+      .find({ periodId: pid })
       .select({ teacherId: 1, status: 1 })
       .populate('teacherId')
       .lean();
 
     for (const c of comps) {
-      const tid = String((c as any).teacherId?._id ?? (c as any).teacherId);
+      const tidRaw = (c as any).teacherId?._id ?? (c as any).teacherId;
+      const tid = tidRaw ? String(tidRaw) : 'unassigned';
       if (!byTeacher[tid]) {
         byTeacher[tid] = {
           teacherId: tid,
-          teacherName: (c as any).teacherId?.name ?? '',
+          teacherName: tid === 'unassigned' ? 'Sin asignar' : ((c as any).teacherId?.name ?? ''),
           countEvaluations: 0,
           sums: Object.fromEntries(EVALUATION_ITEMS.map((i) => [i.key, 0])),
         };
@@ -109,7 +115,14 @@ export class AnalyticsService {
       return (a.averages.clarity ?? 0) - (b.averages.clarity ?? 0);
     });
 
-    return { periodId, items: EVALUATION_ITEMS, teachers: rows };
+    const totals = {
+      evaluations: evals.length,
+      complaints: comps.length,
+      complaintsWithTeacher: comps.filter((c: any) => !!(c?.teacherId?._id ?? c?.teacherId)).length,
+      complaintsUnassigned: comps.filter((c: any) => !(c?.teacherId?._id ?? c?.teacherId)).length,
+    };
+
+    return { periodId, items: EVALUATION_ITEMS, teachers: rows, totals };
   }
 
   async aiDashboard(opts: { periodId: string; topN: number; bucket: Bucket }) {
