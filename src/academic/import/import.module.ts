@@ -11,6 +11,7 @@ import { Teacher, TeacherSchema } from '../teachers/schemas/teacher.schema';
 import { Student, StudentSchema } from '../students/schemas/student.schema';
 import { ClassAssignment, ClassAssignmentSchema } from '../class-assignments/schemas/class-assignment.schema';
 import { ScheduleBlock, ScheduleBlockSchema } from '../schedule-blocks/schemas/schedule-block.schema';
+import { CourseEnrollment, CourseEnrollmentSchema } from '../course-enrollments/schemas/course-enrollment.schema';
 import { StudentsModule } from '../students/students.module';
 import { EnrollmentsModule } from '../enrollments/enrollments.module';
 import { ClassAssignmentsModule } from '../class-assignments/class-assignments.module';
@@ -31,8 +32,7 @@ import { UsersModule } from 'src/users/users.module';
       { name: Student.name, schema: StudentSchema },
       { name: ClassAssignment.name, schema: ClassAssignmentSchema },
       { name: ScheduleBlock.name, schema: ScheduleBlockSchema },
-
-      // NUEVO
+      { name: CourseEnrollment.name, schema: CourseEnrollmentSchema },
       { name: Activity.name, schema: ActivitySchema },
       { name: ActivityEnrollment.name, schema: ActivityEnrollmentSchema },
     ]),

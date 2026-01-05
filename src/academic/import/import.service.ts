@@ -13,6 +13,8 @@ import { Student, StudentDocument } from '../students/schemas/student.schema';
 import { ClassAssignment, ClassAssignmentDocument } from '../class-assignments/schemas/class-assignment.schema';
 import { ScheduleBlock, ScheduleBlockDocument } from '../schedule-blocks/schemas/schedule-block.schema';
 
+import { CourseEnrollment, CourseEnrollmentDocument } from '../course-enrollments/schemas/course-enrollment.schema';
+
 import { Activity, ActivityDocument } from '../activities/schemas/activity.schema';
 import { ActivityEnrollment, ActivityEnrollmentDocument } from '../activity-enrollments/schemas/activity-enrollment.schema';
 
@@ -38,7 +40,8 @@ type ImportEntity =
   | 'class-assignments'
   | 'schedule-blocks'
   | 'activities'
-  | 'activity-enrollments';
+  | 'activity-enrollments'
+  | 'grades';
 
 type ImportError = {
   row: number; // 2 = primera fila de datos (porque columns=true)
@@ -202,6 +205,8 @@ export class ImportService {
     @InjectModel(ScheduleBlock.name) private readonly sbModel: Model<ScheduleBlockDocument>,
     @InjectModel(Activity.name) private readonly activityModel: Model<ActivityDocument>,
     @InjectModel(ActivityEnrollment.name) private readonly activityEnrollmentModel: Model<ActivityEnrollmentDocument>,
+
+    @InjectModel(CourseEnrollment.name) private readonly ceModel: Model<CourseEnrollmentDocument>,
 
     private readonly studentsService: StudentsService,
     private readonly classAssignmentsService: ClassAssignmentsService,
@@ -891,6 +896,171 @@ export class ImportService {
       errors,
     };
   }
+
+async importGrades(file: Express.Multer.File, dryRun = false): Promise<ImportResult> {
+  const rows = parseCsv(file);
+  const errors: ImportError[] = [];
+  let created = 0,
+    updated = 0,
+    skipped = 0,
+    failed = 0;
+
+  function parseGrade(raw: any, field: string): number | null | undefined {
+    // undefined => no columna o no se quiere actualizar
+    const s = norm(raw);
+    if (s === '') return undefined;
+    if (s === '-' || s.toLowerCase() === 'na' || s.toLowerCase() === 'n/a') return null;
+
+    const n = Number(s);
+    if (!Number.isFinite(n)) throw new BadRequestException(`${field} inválido: "${s}"`);
+    if (n < 0 || n > 100) throw new BadRequestException(`${field} fuera de rango (0..100): "${s}"`);
+    return n;
+  }
+
+  for (let i = 0; i < rows.length; i++) {
+    const row = rows[i];
+    const rowNum = i + 2;
+
+    try {
+      const periodName = norm(pick(row, ['periodName', 'period', 'periodo']));
+      const careerCode = normUpper(pick(row, ['careerCode', 'career', 'carrera']));
+      const groupName = normUpper(pick(row, ['groupName', 'group', 'grupo']));
+      const subjectCode = normUpper(pick(row, ['subjectCode', 'subject', 'materia', 'claveMateria']));
+      const teacherEmployeeNumber = norm(pick(row, ['teacherEmployeeNumber', 'employeeNumber', 'docente', 'noEmpleado']));
+      const studentControlNumber = norm(pick(row, ['studentControlNumber', 'controlNumber', 'alumno', 'noControl']));
+
+      if (!periodName) throw new BadRequestException('periodName requerido');
+      if (!careerCode) throw new BadRequestException('careerCode requerido');
+      if (!groupName) throw new BadRequestException('groupName requerido');
+      if (!subjectCode) throw new BadRequestException('subjectCode requerido');
+      if (!studentControlNumber) throw new BadRequestException('studentControlNumber requerido');
+
+      const period = await this.getPeriodByName(periodName);
+      const group = await this.getGroup(periodName, careerCode, groupName);
+      const subject = await this.getSubjectByCode(subjectCode);
+
+      const student = await this.studentModel.findOne({ controlNumber: studentControlNumber }).exec();
+      if (!student) throw new BadRequestException(`No existe Student con controlNumber="${studentControlNumber}"`);
+
+      // classAssignment: prefer teacher match if provided
+      const caFilter: any = {
+        periodId: period._id,
+        groupId: group._id,
+        subjectId: subject._id,
+        status: 'active',
+      };
+
+      let teacher: any = null;
+      if (teacherEmployeeNumber) {
+        teacher = await this.getTeacherByEmployeeNumber(teacherEmployeeNumber);
+        caFilter.teacherId = teacher._id;
+      }
+
+      let ca = await this.caModel.findOne(caFilter).exec();
+
+      if (!ca && teacherEmployeeNumber) {
+        // Si no encontró con teacherId, intenta sin teacher (por si el CSV viene sin el dato correcto)
+        const alt = await this.caModel.findOne({
+          periodId: period._id,
+          groupId: group._id,
+          subjectId: subject._id,
+          status: 'active',
+        }).exec();
+        if (alt) ca = alt as any;
+      }
+
+      if (!ca) {
+        throw new BadRequestException(
+          `No existe ClassAssignment para period="${periodName}", career="${careerCode}", group="${groupName}", subject="${subjectCode}"` +
+            (teacherEmployeeNumber ? `, teacherEmployeeNumber="${teacherEmployeeNumber}"` : ''),
+        );
+      }
+
+      // Parse unit grades + finalGrade
+      const u1 = parseGrade(pick(row, ['u1', 'unit1', 'unidad1']), 'u1');
+      const u2 = parseGrade(pick(row, ['u2', 'unit2', 'unidad2']), 'u2');
+      const u3 = parseGrade(pick(row, ['u3', 'unit3', 'unidad3']), 'u3');
+      const u4 = parseGrade(pick(row, ['u4', 'unit4', 'unidad4']), 'u4');
+      const u5 = parseGrade(pick(row, ['u5', 'unit5', 'unidad5']), 'u5');
+      const finalGradeRaw = pick(row, ['finalGrade', 'final', 'calificacionFinal', 'calificacionfinal']);
+      const finalGrade = finalGradeRaw === undefined ? undefined : parseGrade(finalGradeRaw, 'finalGrade');
+
+      const setOps: any = {};
+      if (u1 !== undefined) setOps['unitGrades.u1'] = u1;
+      if (u2 !== undefined) setOps['unitGrades.u2'] = u2;
+      if (u3 !== undefined) setOps['unitGrades.u3'] = u3;
+      if (u4 !== undefined) setOps['unitGrades.u4'] = u4;
+      if (u5 !== undefined) setOps['unitGrades.u5'] = u5;
+      if (finalGrade !== undefined) setOps['finalGrade'] = finalGrade;
+
+      // Si no hay ninguna columna de calificación, es un CSV inválido.
+      if (Object.keys(setOps).length === 0) throw new BadRequestException('CSV sin columnas de calificación (u1..u5/finalGrade)');
+
+      // metadata
+      if (finalGrade !== undefined || u1 !== undefined || u2 !== undefined || u3 !== undefined || u4 !== undefined || u5 !== undefined) {
+        setOps['gradedAt'] = new Date();
+        if (!teacher) teacher = await this.teacherModel.findById((ca as any).teacherId).exec();
+        if (teacher) setOps['gradedByTeacherId'] = (teacher as any)._id;
+      }
+
+      const filter = {
+        periodId: period._id,
+        studentId: (student as any)._id,
+        classAssignmentId: (ca as any)._id,
+      };
+
+      const update: any = {
+        $set: setOps,
+        $setOnInsert: {
+          periodId: period._id,
+          studentId: (student as any)._id,
+          classAssignmentId: (ca as any)._id,
+          groupId: (ca as any).groupId,
+          subjectId: (ca as any).subjectId,
+          teacherId: (ca as any).teacherId,
+          status: 'active',
+          unitGrades: {},
+          finalGrade: null,
+        },
+      };
+
+      if (dryRun) {
+        // no contamos upserts reales; simulamos como updated
+        updated += 1;
+        continue;
+      }
+
+      const res: any = await this.ceModel.updateOne(filter, update, { upsert: true }).exec();
+      const upserted = Number(res?.upsertedCount ?? 0);
+      const modified = Number(res?.modifiedCount ?? 0);
+      const matched = Number(res?.matchedCount ?? 0);
+
+      if (upserted > 0) created += 1;
+      else if (modified > 0) updated += 1;
+      else if (matched > 0) skipped += 1;
+      else skipped += 1;
+    } catch (e: any) {
+      failed += 1;
+      errors.push({
+        row: rowNum,
+        message: e?.message ?? String(e),
+        data: row,
+      });
+    }
+  }
+
+  return {
+    entity: 'grades',
+    dryRun,
+    total: rows.length,
+    created,
+    updated,
+    skipped,
+    failed,
+    errors,
+  };
+}
+
 
   async importClassAssignments(file: Express.Multer.File, dryRun = false): Promise<ImportResult> {
     const rows = parseCsv(file);
