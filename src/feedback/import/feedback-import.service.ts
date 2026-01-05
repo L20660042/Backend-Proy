@@ -281,7 +281,7 @@ export class FeedbackImportService {
           const analysis = await this.ai.analyzeText({
             text: comment,
             lang: 'es',
-            tasks: ['sentiment', 'topics', 'summary'],
+            tasks: ['sentiment', 'topics'],
           });
           if (analysis) {
             await this.evalModel.updateOne(filter, { $set: { analysis } }).exec();

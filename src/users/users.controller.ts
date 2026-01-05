@@ -6,6 +6,7 @@ import { Roles } from '../auth/roles.decorator';
 import { Role } from '../auth/roles.enum';
 import { CreateUserDto } from './dto/create-user.dto';
 import { UpdateUserDto } from './dto/update-user.dto';
+import { UpsertUserDto } from './dto/upsert-user.dto';
 
 @Controller('users')
 @UseGuards(JwtAuthGuard, RolesGuard)
@@ -21,6 +22,11 @@ export class UsersController {
   @Post()
   create(@Body() dto: CreateUserDto) {
     return this.users.create(dto);
+  }
+
+  @Post('upsert')
+  upsert(@Body() dto: UpsertUserDto) {
+    return this.users.upsert(dto);
   }
 
   @Patch(':id')

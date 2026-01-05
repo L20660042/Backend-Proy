@@ -15,7 +15,8 @@ export class AiClientService {
   }
 
   private get timeoutMs(): number {
-    return Number(this.config.get<string>('AI_TIMEOUT_MS') ?? 8000);
+    // 8s suele ser insuficiente en cold-start o con zero-shot.
+    return Number(this.config.get<string>('AI_TIMEOUT_MS') ?? 30000);
   }
 
   async analyzeText(params: {

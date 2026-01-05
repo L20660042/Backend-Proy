@@ -18,6 +18,7 @@ import { ClassAssignmentsModule } from '../class-assignments/class-assignments.m
 import { Activity, ActivitySchema } from '../activities/schemas/activity.schema';
 import { ActivityEnrollment, ActivityEnrollmentSchema } from '../activity-enrollments/schemas/activity-enrollment.schema';
 import { ActivityEnrollmentsModule } from '../activity-enrollments/activity-enrollments.module';
+import { UsersModule } from 'src/users/users.module';
 
 @Module({
   imports: [
@@ -40,6 +41,7 @@ import { ActivityEnrollmentsModule } from '../activity-enrollments/activity-enro
     ScheduleBlocksModule,
     StudentsModule,
     ActivityEnrollmentsModule,
+    UsersModule,
   ],
   controllers: [ImportController],
   providers: [ImportService],

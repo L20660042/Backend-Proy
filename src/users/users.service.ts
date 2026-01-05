@@ -6,6 +6,7 @@ import { CreateUserDto } from './dto/create-user.dto';
 import { UpdateUserDto } from './dto/update-user.dto';
 import { User, UserDocument } from './schemas/user.schema';
 import { TeachersService } from '../academic/teachers/teachers.service';
+import { UpsertUserDto } from './dto/upsert-user.dto';
 
 @Injectable()
 export class UsersService {
@@ -110,7 +111,42 @@ export class UsersService {
       throw err;
     }
   }
+ async upsert(dto: UpsertUserDto) {
+    const email = String(dto.email ?? '').trim().toLowerCase();
+    if (!email) throw new BadRequestException('email requerido');
 
+    const linkedRaw = (dto as any).linkedEntityId;
+    const linkedEntityId =
+      linkedRaw === '' ? null : linkedRaw === undefined ? undefined : linkedRaw;
+
+    const existing = await this.userModel.findOne({ email }).exec();
+    if (existing) {
+      const patch: UpdateUserDto = {} as any;
+
+      if (dto.roles !== undefined) patch.roles = dto.roles;
+      if (dto.status !== undefined) patch.status = dto.status;
+      if (linkedEntityId !== undefined) patch.linkedEntityId = linkedEntityId as any;
+      if (dto.password) (patch as any).password = dto.password;
+
+      return this.update(String((existing as any)._id), patch);
+    }
+    const rolesRaw: any = (dto as any).roles;
+    const rolesArr: string[] = Array.isArray(rolesRaw) ? rolesRaw : rolesRaw ? [rolesRaw] : [];
+    if (rolesArr.length === 0) throw new BadRequestException('roles requerido');
+
+    const password = String(dto.password ?? '').trim();
+    if (!password) throw new BadRequestException('password requerido');
+
+    return this.create({
+      email,
+      password,
+      roles: rolesArr,
+      status: dto.status ?? 'active',
+      linkedEntityId: linkedEntityId === undefined ? null : (linkedEntityId as any),
+      teacherName: (dto as any).teacherName,
+      employeeNumber: (dto as any).employeeNumber,
+    } as any);
+  }
   async update(id: string, dto: UpdateUserDto) {
     if (!Types.ObjectId.isValid(id)) throw new BadRequestException('ID inválido');
 

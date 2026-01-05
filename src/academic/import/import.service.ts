@@ -2,6 +2,7 @@ import { BadRequestException, Injectable } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
 import { Model, Types } from 'mongoose';
 import { parse } from 'csv-parse/sync';
+import { ConfigService } from '@nestjs/config';
 
 import { Period, PeriodDocument } from '../periods/schemas/period.schema';
 import { Career, CareerDocument } from '../careers/schemas/career.schema';
@@ -20,6 +21,8 @@ import { ClassAssignmentsService } from '../class-assignments/class-assignments.
 import { ScheduleBlocksService } from '../schedule-blocks/schedule-blocks.service';
 import { EnrollmentsService } from '../enrollments/enrollments.service';
 import { ActivityEnrollmentsService } from '../activity-enrollments/activity-enrollments.service';
+import { UsersService } from '../../users/users.service';
+import { Role } from '../../auth/roles.enum';
 
 type DeliveryMode = 'presencial' | 'semipresencial' | 'asincrono';
 type EnrollmentStatus = 'active' | 'inactive' | 'suspended';
@@ -205,7 +208,60 @@ export class ImportService {
     private readonly scheduleBlocksService: ScheduleBlocksService,
     private readonly enrollmentsService: EnrollmentsService,
     private readonly activityEnrollmentsService: ActivityEnrollmentsService,
+    private readonly usersService: UsersService,
+    private readonly config: ConfigService,
   ) {}
+
+  private teacherEmailFromEmployeeNumber(employeeNumber: string) {
+    const domain = String(this.config.get<string>('TEACHER_EMAIL_DOMAIN') ?? 'metricampus.local').trim();
+    return `${String(employeeNumber).trim()}@${domain}`.toLowerCase();
+  }
+
+  private teacherDefaultPassword(employeeNumber: string) {
+    const prefix = String(this.config.get<string>('TEACHER_DEFAULT_PASSWORD_PREFIX') ?? 'Metricamps@');
+    return `${prefix}${String(employeeNumber).trim()}`;
+  }
+
+  private userStatusFromTeacherStatus(teacherStatus: 'active' | 'inactive' | 'suspended'): 'active' | 'inactive' | 'pending' {
+    return teacherStatus === 'active' ? 'active' : 'inactive';
+  }
+
+  private async ensureTeacherUser(params: {
+    teacherId: string;
+    employeeNumber: string;
+    teacherName: string;
+    teacherStatus: 'active' | 'inactive' | 'suspended';
+  }) {
+    const email = this.teacherEmailFromEmployeeNumber(params.employeeNumber);
+    const status = this.userStatusFromTeacherStatus(params.teacherStatus);
+
+    const existing = await this.usersService.findByEmail(email);
+
+    if (!existing) {
+      // Crea el usuario del docente con password por defecto.
+      await this.usersService.create({
+        email,
+        password: this.teacherDefaultPassword(params.employeeNumber),
+        roles: [Role.DOCENTE],
+        status,
+        linkedEntityId: params.teacherId,
+        teacherName: params.teacherName,
+        employeeNumber: params.employeeNumber,
+      } as any);
+      return;
+    }
+
+    // Asegura que tenga rol DOCENTE, status y linkedEntityId correctos.
+    const rolesRaw = Array.isArray((existing as any).roles) ? (existing as any).roles : [];
+    const rolesUpper = rolesRaw.map((r: any) => String(r).toUpperCase());
+    const nextRoles = rolesUpper.includes(Role.DOCENTE) ? rolesUpper : [...rolesUpper, Role.DOCENTE];
+
+    await this.usersService.update(String((existing as any)._id), {
+      roles: nextRoles,
+      status,
+      linkedEntityId: params.teacherId,
+    } as any);
+  }
 
   private async getPeriodByName(periodName: string) {
     const key = norm(periodName);
@@ -254,7 +310,8 @@ export class ImportService {
     const p = await this.getPeriodByName(periodName);
     const c = await this.getCareerByCode(careerCode);
 
-    const name = norm(groupName);
+    // Alineado a GroupsService: se normaliza en MAYÚSCULAS.
+    const name = normUpper(groupName);
     if (!name) throw new BadRequestException('groupName requerido');
 
     const key = `${String(p._id)}|${String(c._id)}|${name}`;
@@ -437,35 +494,63 @@ export class ImportService {
         if (!employeeNumber) throw new BadRequestException('employeeNumber requerido');
         if (!name) throw new BadRequestException('name requerido');
 
+        const nextStatus = status === 'inactive' ? 'inactive' : status === 'suspended' ? 'suspended' : 'active';
+
         const existing = await this.teacherModel.findOne({ employeeNumber }).exec();
+
+        // CREATE
         if (!existing) {
           created++;
           if (!dryRun) {
-            await this.teacherModel.create({
+            const t = await this.teacherModel.create({
               employeeNumber,
               name,
               divisionId,
-              status: status === 'inactive' ? 'inactive' : status === 'suspended' ? 'suspended' : 'active',
+              status: nextStatus,
             } as any);
+
+            await this.ensureTeacherUser({
+              teacherId: String((t as any)._id),
+              employeeNumber,
+              teacherName: name,
+              teacherStatus: nextStatus,
+            });
           }
           continue;
         }
-
-        const nextStatus = status === 'inactive' ? 'inactive' : status === 'suspended' ? 'suspended' : 'active';
 
         const needsUpdate =
           String(existing.name) !== name ||
           String((existing as any).divisionId ?? null) !== String(divisionId ?? null) ||
           String((existing as any).status ?? 'active') !== nextStatus;
 
+        // NO UPDATE => pero igual asegura que el usuario exista y esté linkeado
         if (!needsUpdate) {
           skipped++;
+          if (!dryRun) {
+            await this.ensureTeacherUser({
+              teacherId: String((existing as any)._id),
+              employeeNumber,
+              teacherName: String((existing as any).name ?? name),
+              teacherStatus: ((existing as any).status ?? 'active') as any,
+            });
+          }
           continue;
         }
 
+        // UPDATE
         updated++;
         if (!dryRun) {
-          await this.teacherModel.updateOne({ _id: existing._id }, { $set: { name, divisionId, status: nextStatus } }).exec();
+          await this.teacherModel
+            .updateOne({ _id: (existing as any)._id }, { $set: { name, divisionId, status: nextStatus } })
+            .exec();
+
+          await this.ensureTeacherUser({
+            teacherId: String((existing as any)._id),
+            employeeNumber,
+            teacherName: name,
+            teacherStatus: nextStatus,
+          });
         }
       } catch (e: any) {
         failed++;
@@ -479,6 +564,7 @@ export class ImportService {
 
     return { entity: 'teachers', dryRun, total: rows.length, created, updated, skipped, failed, errors };
   }
+
 
   async importSubjects(file: Express.Multer.File, dryRun = false): Promise<ImportResult> {
     const rows = parseCsv(file);
@@ -571,7 +657,8 @@ export class ImportService {
       try {
         const periodName = norm(pick(row, ['periodName', 'period']));
         const careerCode = normUpper(pick(row, ['careerCode', 'career']));
-        const groupName = norm(pick(row, ['groupName', 'name', 'group']));
+        // Alineado a GroupsService: se normaliza en MAYÚSCULAS.
+        const groupName = normUpper(pick(row, ['groupName', 'name', 'group']));
         const semesterRaw = pick(row, ['semester', 'semestre']);
         const semester = Number(String(semesterRaw ?? '').trim());
 
@@ -639,7 +726,8 @@ export class ImportService {
         const careerCode = normUpper(pick(row, ['careerCode', 'career']));
 
         const periodName = norm(pick(row, ['periodName', 'periodo']));
-        const groupName = norm(pick(row, ['groupName', 'grupo', 'group']));
+        // Alineado a GroupsService: MAYÚSCULAS
+        const groupName = normUpper(pick(row, ['groupName', 'grupo', 'group']));
         const groupIdRaw = norm(pick(row, ['groupId']));
 
         const status = normalizeStatus(pick(row, ['status']));
@@ -746,7 +834,8 @@ export class ImportService {
         const periodName = norm(pick(row, ['periodName']));
         const studentControlNumber = norm(pick(row, ['studentControlNumber', 'controlNumber', 'noControl', 'nocontrol']));
         const careerCode = normUpper(pick(row, ['careerCode']));
-        const groupName = norm(pick(row, ['groupName', 'group']));
+        // Alineado a GroupsService: se normaliza en MAYÚSCULAS.
+        const groupName = normUpper(pick(row, ['groupName', 'group']));
         const status = normalizeStatus(pick(row, ['status']));
 
         if (!periodName) throw new BadRequestException('periodName requerido');
