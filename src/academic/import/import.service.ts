@@ -1008,21 +1008,19 @@ async importGrades(file: Express.Multer.File, dryRun = false): Promise<ImportRes
         studentId: (student as any)._id,
         classAssignmentId: (ca as any)._id,
       };
-
       const update: any = {
-        $set: setOps,
-        $setOnInsert: {
-          periodId: period._id,
-          studentId: (student as any)._id,
-          classAssignmentId: (ca as any)._id,
-          groupId: (ca as any).groupId,
-          subjectId: (ca as any).subjectId,
-          teacherId: (ca as any).teacherId,
-          status: 'active',
-          unitGrades: {},
-          finalGrade: null,
-        },
-      };
+      $set: setOps,
+      $setOnInsert: {
+        periodId: period._id,
+        studentId: (student as any)._id,
+        classAssignmentId: (ca as any)._id,
+        groupId: (ca as any).groupId,
+        subjectId: (ca as any).subjectId,
+        teacherId: (ca as any).teacherId,
+        status: 'active',
+      },
+    };
+
 
       if (dryRun) {
         // no contamos upserts reales; simulamos como updated
