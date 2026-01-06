@@ -14,6 +14,12 @@ function asObjectId(id: string) {
   return new Types.ObjectId(id);
 }
 
+function optionalObjectId(id?: string, paramName = 'id') {
+  if (!id) return undefined;
+  if (!Types.ObjectId.isValid(id)) throw new BadRequestException(`${paramName} inválido`);
+  return new Types.ObjectId(id);
+}
+
 function normSentimentLabel(x: any): 'positive' | 'neutral' | 'negative' | 'unknown' {
   const s = String(x ?? '').trim().toLowerCase();
   if (!s) return 'unknown';
@@ -43,7 +49,7 @@ export class AnalyticsService {
   async overview(periodId: string) {
     if (!periodId) throw new BadRequestException('periodId requerido');
 
-    // Usar ObjectId de forma consistente (en otros pipelines también se usa)
+    
     const pid = asObjectId(periodId);
 
     const evals = await this.evalModel
@@ -71,8 +77,6 @@ export class AnalyticsService {
       }
     }
 
-    // Incluimos también quejas generales (teacherId=null) para que el overview no quede vacío
-    // cuando el alumno no selecciona una carga.
     const comps = await this.compModel
       .find({ periodId: pid })
       .select({ teacherId: 1, status: 1 })
@@ -125,15 +129,35 @@ export class AnalyticsService {
     return { periodId, items: EVALUATION_ITEMS, teachers: rows, totals };
   }
 
-  async aiDashboard(opts: { periodId: string; topN: number; bucket: Bucket }) {
+  async aiDashboard(opts: {
+    periodId: string;
+    topN: number;
+    bucket: Bucket;
+    teacherId?: string;
+    subjectId?: string;
+    groupId?: string;
+  }) {
     const { periodId, topN, bucket } = opts;
     if (!periodId) throw new BadRequestException('periodId requerido');
 
     const pid = asObjectId(periodId);
 
-    // 1) Sentiment counts (evaluations)
+    const tid = optionalObjectId(opts.teacherId, 'teacherId');
+    const sid = optionalObjectId(opts.subjectId, 'subjectId');
+    const gid = optionalObjectId(opts.groupId, 'groupId');
+
+    const evalBaseMatch: any = { periodId: pid };
+    if (tid) evalBaseMatch.teacherId = tid;
+    if (sid) evalBaseMatch.subjectId = sid;
+    if (gid) evalBaseMatch.groupId = gid;
+
+    const compBaseMatch: any = { periodId: pid };
+    if (tid) compBaseMatch.teacherId = tid;
+    if (sid) compBaseMatch.subjectId = sid;
+    if (gid) compBaseMatch.groupId = gid;
+
     const evalSent = await this.evalModel.aggregate([
-      { $match: { periodId: pid, 'analysis.sentiment.label': { $exists: true } } },
+      { $match: { ...evalBaseMatch, 'analysis.sentiment.label': { $exists: true } } },
       {
         $project: {
           teacherId: 1,
@@ -149,9 +173,8 @@ export class AnalyticsService {
       },
     ]);
 
-    // 2) Sentiment counts (complaints)
     const compSent = await this.compModel.aggregate([
-      { $match: { periodId: pid, 'analysis.sentiment.label': { $exists: true } } },
+      { $match: { ...compBaseMatch, 'analysis.sentiment.label': { $exists: true } } },
       {
         $project: {
           teacherId: 1,
@@ -173,9 +196,8 @@ export class AnalyticsService {
       (sentiment as any)[k] = ((sentiment as any)[k] ?? 0) + Number(r.count ?? 0);
     }
 
-    // 3) Top topics (evaluations + complaints)
     const evalTopics = await this.evalModel.aggregate([
-      { $match: { periodId: pid, 'analysis.topics': { $exists: true, $ne: [] } } },
+      { $match: { ...evalBaseMatch, 'analysis.topics': { $exists: true, $ne: [] } } },
       { $unwind: '$analysis.topics' },
       {
         $project: {
@@ -196,7 +218,7 @@ export class AnalyticsService {
     ]);
 
     const compTopics = await this.compModel.aggregate([
-      { $match: { periodId: pid, 'analysis.topics': { $exists: true, $ne: [] } } },
+      { $match: { ...compBaseMatch, 'analysis.topics': { $exists: true, $ne: [] } } },
       { $unwind: '$analysis.topics' },
       {
         $project: {
@@ -230,9 +252,8 @@ export class AnalyticsService {
       .sort((a, b) => b.count - a.count || b.weight - a.weight)
       .slice(0, topN);
 
-    // 4) Trend de sentimiento (bucket)
     const evalTrend = await this.evalModel.aggregate([
-      { $match: { periodId: pid, 'analysis.sentiment.label': { $exists: true } } },
+      { $match: { ...evalBaseMatch, 'analysis.sentiment.label': { $exists: true } } },
       {
         $project: {
           bucket: bucketExpr(bucket),
@@ -248,7 +269,7 @@ export class AnalyticsService {
     ]);
 
     const compTrend = await this.compModel.aggregate([
-      { $match: { periodId: pid, 'analysis.sentiment.label': { $exists: true } } },
+      { $match: { ...compBaseMatch, 'analysis.sentiment.label': { $exists: true } } },
       {
         $project: {
           bucket: bucketExpr(bucket),
@@ -277,15 +298,21 @@ export class AnalyticsService {
 
     const sentimentTrend = Array.from(bucketMap.values()).sort((a, b) => a.bucket.localeCompare(b.bucket));
 
-    // 5) Top docentes por negatividad (eval+complaints)
+    
+    const evalTeacherMatch: any = { ...evalBaseMatch, 'analysis.sentiment.label': { $exists: true } };
+    if (!evalTeacherMatch.teacherId) evalTeacherMatch.teacherId = { $ne: null };
+
     const evalByTeacher = await this.evalModel.aggregate([
-      { $match: { periodId: pid, teacherId: { $ne: null }, 'analysis.sentiment.label': { $exists: true } } },
+      { $match: evalTeacherMatch },
       { $project: { teacherId: 1, label: { $ifNull: ['$analysis.sentiment.label', ''] } } },
       { $group: { _id: { teacherId: '$teacherId', label: '$label' }, count: { $sum: 1 } } },
     ]);
 
+    const compTeacherMatch: any = { ...compBaseMatch, 'analysis.sentiment.label': { $exists: true } };
+    if (!compTeacherMatch.teacherId) compTeacherMatch.teacherId = { $ne: null };
+
     const compByTeacher = await this.compModel.aggregate([
-      { $match: { periodId: pid, teacherId: { $ne: null }, 'analysis.sentiment.label': { $exists: true } } },
+      { $match: compTeacherMatch },
       { $project: { teacherId: 1, label: { $ifNull: ['$analysis.sentiment.label', ''] } } },
       { $group: { _id: { teacherId: '$teacherId', label: '$label' }, count: { $sum: 1 } } },
     ]);
@@ -328,6 +355,11 @@ export class AnalyticsService {
     return {
       periodId,
       bucket,
+      filters: {
+        teacherId: tid ? String(tid) : undefined,
+        subjectId: sid ? String(sid) : undefined,
+        groupId: gid ? String(gid) : undefined,
+      },
       sentiment,
       topTopics,
       sentimentTrend,

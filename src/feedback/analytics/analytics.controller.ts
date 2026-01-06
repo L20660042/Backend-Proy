@@ -17,18 +17,23 @@ export class AnalyticsController {
     return this.service.overview(periodId);
   }
 
-  // Dashboard IA: sentimiento + temas + tendencias + top docentes
   @Roles(Role.SUPERADMIN, Role.ADMIN, Role.JEFE, Role.SUBDIRECCION, Role.DESARROLLO_ACADEMICO, Role.SERVICIOS_ESCOLARES)
   @Get('ai-dashboard')
   aiDashboard(
     @Query('periodId') periodId: string,
     @Query('topN') topN?: string,
     @Query('bucket') bucket?: 'day' | 'week' | 'month',
+    @Query('teacherId') teacherId?: string,
+    @Query('subjectId') subjectId?: string,
+    @Query('groupId') groupId?: string,
   ) {
     return this.service.aiDashboard({
       periodId,
       topN: topN ? Number(topN) : 10,
       bucket: bucket ?? 'month',
+      teacherId,
+      subjectId,
+      groupId,
     });
   }
 }
